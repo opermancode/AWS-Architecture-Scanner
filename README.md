@@ -4,6 +4,8 @@ Scans your entire AWS account across all regions, discovers all resources and th
 - 📊 **Interactive HTML diagram** — visual architecture map in your browser
 - 📁 **JSON report** — full machine-readable data of all resources
 
+<img width="1440" height="900" alt="Screenshot 2026-06-08 at 12 44 44 PM" src="https://github.com/user-attachments/assets/ed8226ee-913f-4adb-9dee-ba4e313c5852" />
+
 ---
 
 ## What It Scans
