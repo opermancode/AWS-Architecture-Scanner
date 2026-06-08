@@ -28,6 +28,7 @@ Scans your entire AWS account across all regions, discovers all resources and th
 ---
 
 ## Setup
+#Provide the ReadOnlyAccess for the user, Which user access key you are using
 
 ### 1. Install Python dependencies
 
