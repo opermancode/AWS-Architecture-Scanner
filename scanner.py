@@ -441,6 +441,290 @@ class RegionScanner:
         except ClientError:
             pass
 
+    # ── ROUTE TABLES ─────────────────────────
+    def scan_route_tables(self):
+        try:
+            ec2 = self.client("ec2")
+            rts = ec2.describe_route_tables()["RouteTables"]
+            for rt in rts:
+                rtid = rt["RouteTableId"]
+                name = get_name_tag(rt.get("Tags")) or rtid
+                vpc_id = rt.get("VpcId")
+
+                # Classify routes
+                routes = []
+                has_onprem = False
+                has_internet = False
+                has_vpn = False
+                has_peering = False
+                onprem_cidrs = []
+
+                for r in rt.get("Routes", []):
+                    dest = r.get("DestinationCidrBlock") or r.get("DestinationIpv6CidrBlock") or r.get("DestinationPrefixListId", "")
+                    target = (
+                        r.get("GatewayId") or
+                        r.get("NatGatewayId") or
+                        r.get("VpcPeeringConnectionId") or
+                        r.get("TransitGatewayId") or
+                        r.get("NetworkInterfaceId") or
+                        r.get("InstanceId") or
+                        r.get("EgressOnlyInternetGatewayId") or
+                        "local"
+                    )
+                    state = r.get("State", "active")
+                    origin = r.get("Origin", "")
+
+                    route_info = {
+                        "dest": dest,
+                        "target": target,
+                        "state": state,
+                        "origin": origin
+                    }
+                    routes.append(route_info)
+
+                    # Detect on-prem routes (via VGW or TGW with private CIDRs)
+                    if target and (target.startswith("vgw-") or target.startswith("tgw-")):
+                        has_vpn = True
+                        if dest and dest not in ["0.0.0.0/0", "::/0", "local"]:
+                            has_onprem = True
+                            onprem_cidrs.append(dest)
+
+                    # Detect internet routes
+                    if target and target.startswith("igw-"):
+                        has_internet = True
+
+                    # Detect peering
+                    if target and target.startswith("pcx-"):
+                        has_peering = True
+
+                # Associated subnets
+                assoc_subnets = []
+                is_main = False
+                for assoc in rt.get("Associations", []):
+                    if assoc.get("Main"):
+                        is_main = True
+                    if assoc.get("SubnetId"):
+                        assoc_subnets.append(assoc["SubnetId"])
+
+                rt_type = "main" if is_main else "custom"
+                if has_internet:
+                    rt_type = "public"
+                elif has_onprem:
+                    rt_type = "vpn/onprem"
+                elif has_peering:
+                    rt_type = "peering"
+
+                self.add("route_table", rtid, name, {
+                    "vpc": vpc_id,
+                    "type": rt_type,
+                    "route_count": len(routes),
+                    "routes": routes,
+                    "has_internet": has_internet,
+                    "has_vpn": has_vpn,
+                    "has_onprem": has_onprem,
+                    "has_peering": has_peering,
+                    "onprem_cidrs": onprem_cidrs,
+                    "associated_subnets": assoc_subnets,
+                    "is_main": is_main
+                }, parent=vpc_id)
+
+                # Connect RT to VPC
+                self.connect(vpc_id, rtid, "route table")
+
+                # Connect RT to associated subnets
+                for sid in assoc_subnets:
+                    self.connect(rtid, sid, "routes")
+
+                # Connect RT to VGW/TGW targets
+                for r in rt.get("Routes", []):
+                    gw = r.get("GatewayId")
+                    nat = r.get("NatGatewayId")
+                    tgw = r.get("TransitGatewayId")
+                    pcx = r.get("VpcPeeringConnectionId")
+                    if gw and gw.startswith("igw-"):
+                        self.connect(rtid, gw, "→ internet")
+                    if gw and gw.startswith("vgw-"):
+                        self.connect(rtid, gw, "→ onprem")
+                    if nat:
+                        self.connect(rtid, nat, "→ nat")
+                    if tgw:
+                        self.connect(rtid, tgw, "→ tgw")
+
+        except ClientError:
+            pass
+
+    # ── NETWORK ACLs ─────────────────────────
+    def scan_nacl(self):
+        try:
+            ec2 = self.client("ec2")
+            nacls = ec2.describe_network_acls()["NetworkAcls"]
+            for nacl in nacls:
+                nid = nacl["NetworkAclId"]
+                name = get_name_tag(nacl.get("Tags")) or nid
+                vpc_id = nacl.get("VpcId")
+
+                inbound = []
+                outbound = []
+                for entry in nacl.get("Entries", []):
+                    rule = {
+                        "rule_number": entry.get("RuleNumber"),
+                        "protocol": entry.get("Protocol"),
+                        "action": entry.get("RuleAction"),
+                        "cidr": entry.get("CidrBlock") or entry.get("Ipv6CidrBlock", ""),
+                        "port_range": f"{entry.get('PortRange', {}).get('From','*')}-{entry.get('PortRange', {}).get('To','*')}" if entry.get("PortRange") else "all"
+                    }
+                    if entry.get("Egress"):
+                        outbound.append(rule)
+                    else:
+                        inbound.append(rule)
+
+                assoc_subnets = [a["SubnetId"] for a in nacl.get("Associations", []) if a.get("SubnetId")]
+
+                self.add("nacl", nid, name, {
+                    "vpc": vpc_id,
+                    "is_default": nacl.get("IsDefault"),
+                    "inbound_rules": len(inbound),
+                    "outbound_rules": len(outbound),
+                    "inbound": inbound,
+                    "outbound": outbound,
+                    "associated_subnets": assoc_subnets
+                }, parent=vpc_id)
+
+                self.connect(vpc_id, nid, "nacl")
+                for sid in assoc_subnets:
+                    self.connect(nid, sid, "protects")
+
+        except ClientError:
+            pass
+
+    # ── VPC PEERING ──────────────────────────
+    def scan_vpc_peering(self):
+        try:
+            ec2 = self.client("ec2")
+            peers = ec2.describe_vpc_peering_connections()["VpcPeeringConnections"]
+            for p in peers:
+                if p.get("Status", {}).get("Code") == "deleted":
+                    continue
+                pid = p["VpcPeeringConnectionId"]
+                name = get_name_tag(p.get("Tags")) or pid
+                requester = p.get("RequesterVpcInfo", {})
+                accepter = p.get("AccepterVpcInfo", {})
+                self.add("peering", pid, name, {
+                    "status": p.get("Status", {}).get("Code"),
+                    "requester_vpc": requester.get("VpcId"),
+                    "requester_cidr": requester.get("CidrBlock"),
+                    "accepter_vpc": accepter.get("VpcId"),
+                    "accepter_cidr": accepter.get("CidrBlock"),
+                    "requester_account": requester.get("OwnerId"),
+                    "accepter_account": accepter.get("OwnerId"),
+                })
+                self.connect(requester.get("VpcId"), pid, "peering")
+                self.connect(pid, accepter.get("VpcId"), "peering")
+        except ClientError:
+            pass
+
+    # ── TRANSIT GATEWAYS ─────────────────────
+    def scan_transit_gateway(self):
+        try:
+            ec2 = self.client("ec2")
+            tgws = ec2.describe_transit_gateways()["TransitGateways"]
+            for tgw in tgws:
+                if tgw.get("State") == "deleted":
+                    continue
+                tid = tgw["TransitGatewayId"]
+                name = get_name_tag(tgw.get("Tags")) or tid
+                self.add("tgw", tid, name, {
+                    "state": tgw.get("State"),
+                    "asn": tgw.get("Options", {}).get("AmazonSideAsn"),
+                    "owner": tgw.get("OwnerId"),
+                    "dns_support": tgw.get("Options", {}).get("DnsSupport"),
+                    "vpn_ecmp": tgw.get("Options", {}).get("VpnEcmpSupport"),
+                })
+        except ClientError:
+            pass
+
+    # ── TRANSIT GATEWAY ATTACHMENTS ──────────
+    def scan_tgw_attachments(self):
+        try:
+            ec2 = self.client("ec2")
+            atts = ec2.describe_transit_gateway_attachments()["TransitGatewayAttachments"]
+            for att in atts:
+                if att.get("State") == "deleted":
+                    continue
+                tgw_id = att.get("TransitGatewayId")
+                res_id = att.get("ResourceId")
+                res_type = att.get("ResourceType")
+                label = f"tgw-attach ({res_type})"
+                if tgw_id and res_id:
+                    self.connect(tgw_id, res_id, label)
+                    self.connect(res_id, tgw_id, label)
+        except ClientError:
+            pass
+
+    # ── VPC ENDPOINTS ────────────────────────
+    def scan_vpc_endpoints(self):
+        try:
+            ec2 = self.client("ec2")
+            eps = ec2.describe_vpc_endpoints()["VpcEndpoints"]
+            for ep in eps:
+                if ep.get("State") == "deleted":
+                    continue
+                eid = ep["VpcEndpointId"]
+                svc = ep.get("ServiceName", "")
+                svc_short = svc.split(".")[-1] if svc else eid
+                name = get_name_tag(ep.get("Tags")) or f"endpoint-{svc_short}"
+                vpc_id = ep.get("VpcId")
+                self.add("endpoint", eid, name, {
+                    "service": svc,
+                    "type": ep.get("VpcEndpointType"),
+                    "state": ep.get("State"),
+                    "vpc": vpc_id,
+                    "private_dns": ep.get("PrivateDnsEnabled"),
+                }, parent=vpc_id)
+                self.connect(vpc_id, eid, "endpoint")
+                for sid in ep.get("SubnetIds", []):
+                    self.connect(eid, sid, "in subnet")
+        except ClientError:
+            pass
+
+    # ── DHCP OPTIONS ─────────────────────────
+    def scan_dhcp(self):
+        try:
+            ec2 = self.client("ec2")
+            dhcps = ec2.describe_dhcp_options()["DhcpOptions"]
+            for d in dhcps:
+                did = d["DhcpOptionsId"]
+                name = get_name_tag(d.get("Tags")) or did
+                configs = {}
+                for cfg in d.get("DhcpConfigurations", []):
+                    k = cfg.get("Key")
+                    v = [x.get("Value") for x in cfg.get("Values", [])]
+                    configs[k] = ", ".join(v)
+                self.add("dhcp", did, name, configs)
+        except ClientError:
+            pass
+
+    # ── ELASTIC IPs ──────────────────────────
+    def scan_eips(self):
+        try:
+            ec2 = self.client("ec2")
+            eips = ec2.describe_addresses()["Addresses"]
+            for eip in eips:
+                eid = eip.get("AllocationId", eip.get("PublicIp"))
+                name = get_name_tag(eip.get("Tags")) or eip.get("PublicIp", eid)
+                self.add("eip", eid, name, {
+                    "public_ip": eip.get("PublicIp"),
+                    "private_ip": eip.get("PrivateIpAddress"),
+                    "associated_to": eip.get("InstanceId") or eip.get("NetworkInterfaceId"),
+                    "domain": eip.get("Domain"),
+                })
+                if eip.get("InstanceId"):
+                    self.connect(eip["InstanceId"], eid, "elastic ip")
+                if eip.get("NatGatewayId"):
+                    self.connect(eip.get("NatGatewayId"), eid, "elastic ip")
+        except ClientError:
+            pass
+
     # ── MAIN SCAN ────────────────────────────
     def scan(self):
         scanners = [
@@ -452,6 +736,14 @@ class RegionScanner:
             self.scan_cgw,
             self.scan_vgw,
             self.scan_vpn,
+            self.scan_route_tables,
+            self.scan_nacl,
+            self.scan_vpc_peering,
+            self.scan_transit_gateway,
+            self.scan_tgw_attachments,
+            self.scan_vpc_endpoints,
+            self.scan_dhcp,
+            self.scan_eips,
             self.scan_ec2,
             self.scan_rds,
             self.scan_s3,
@@ -620,7 +912,13 @@ def build_html(data, json_data, pwd_hash, use_password):
         'elasticache': '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#C7131F"/><path d="M12 20C12 15.6 15.6 12 20 12C24.4 12 28 15.6 28 20" stroke="white" stroke-width="2" fill="none"/><path d="M9 20C9 14 14 9 20 9C26 9 31 14 31 20" stroke="white" stroke-width="1.5" fill="none" opacity="0.6"/><ellipse cx="20" cy="22" rx="8" ry="4" stroke="white" stroke-width="2" fill="none"/><path d="M12 22V26C12 28.2 15.6 30 20 30C24.4 30 28 28.2 28 26V22" stroke="white" stroke-width="1.5"/></svg>',
         'cloudfront':  '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#8C4FFF"/><path d="M10 22C10 18.7 12.7 16 16 16C16.4 12.7 19.2 10 23 10C27.4 10 31 13.6 31 18C31 18 31 18 31 18C32.1 18.5 33 19.7 33 21C33 22.7 31.7 24 30 24H10C8.3 24 10 22 10 22Z" stroke="white" stroke-width="2" fill="none"/><path d="M14 24V30M20 24V30M26 24V30" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
         'vpn':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#C7131F"/><rect x="14" y="17" width="12" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M17 17V15C17 13.3 18.3 12 20 12C21.7 12 23 13.3 23 15V17" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="20" cy="22" r="1.5" fill="white"/><path d="M20 23.5V25.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
-        'cgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#546E7A"/><rect x="10" y="14" width="20" height="16" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M16 14V11M24 14V11" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M14 19H26M14 23H22" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'tgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#E7157B"/><circle cx="20" cy="20" r="8" stroke="white" stroke-width="2" fill="none"/><path d="M20 12V8M20 32V28M12 20H8M32 20H28" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="20" cy="20" r="3" fill="white"/></svg>',
+        'peering':     '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#0D86FF"/><rect x="8" y="12" width="10" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><rect x="22" y="18" width="10" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M18 17L22 23" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
+        'endpoint':    '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#1A6622"/><circle cx="20" cy="20" r="9" stroke="white" stroke-width="2" fill="none"/><path d="M15 20H25M21 16L25 20L21 24" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        'nacl':        '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#DD344C"/><rect x="9" y="9" width="22" height="22" rx="3" stroke="white" stroke-width="2" fill="none"/><path d="M9 16H31M9 24H31M16 9V31" stroke="white" stroke-width="1.5"/></svg>',
+        'route_table': '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#E7157B"/><rect x="8" y="10" width="24" height="20" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M8 16H32M8 22H32M16 10V30" stroke="white" stroke-width="1.5"/><circle cx="27" cy="13" r="2" fill="#10b981"/><circle cx="27" cy="19" r="2" fill="#f59e0b"/><circle cx="27" cy="25" r="2" fill="#10b981"/></svg>',
+        'eip':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF9900"/><circle cx="20" cy="18" r="8" stroke="white" stroke-width="2" fill="none"/><path d="M14 30C14 30 16 26 20 26C24 26 26 30 26 30" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M17 18H23M20 15V21" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
+        'dhcp':        '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#546E7A"/><path d="M10 14H30V28H10V14Z" stroke="white" stroke-width="2" fill="none" rx="2"/><path d="M14 19H20M14 23H26" stroke="white" stroke-width="1.5" stroke-linecap="round"/><circle cx="25" cy="19" r="2" fill="white"/></svg>',
         'vgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#0D86FF"/><path d="M20 10V30M14 14L20 10L26 14M14 26L20 30L26 26" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 20H30" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
     }
 
@@ -909,7 +1207,13 @@ const TC = {
   sqs:         {color:'#FF4F8B',label:'SQS Queue'},
   elasticache: {color:'#C7131F',label:'ElastiCache'},
   cloudfront:  {color:'#8C4FFF',label:'CloudFront'},
-  vpn:         {color:'#C7131F',label:'VPN Connection'},
+  route_table: {color:'#E7157B',label:'Route Table'},
+  nacl:        {color:'#DD344C',label:'Network ACL'},
+  tgw:         {color:'#E7157B',label:'Transit GW'},
+  peering:     {color:'#0D86FF',label:'VPC Peering'},
+  endpoint:    {color:'#1A6622',label:'VPC Endpoint'},
+  eip:         {color:'#FF9900',label:'Elastic IP'},
+  dhcp:        {color:'#546E7A',label:'DHCP Options'},
   cgw:         {color:'#546E7A',label:'Customer GW'},
   vgw:         {color:'#0D86FF',label:'Virtual GW'},
 };
@@ -1112,6 +1416,13 @@ function render(){
     const dn=['stopped','down','Down','failed','error','deleted'].includes(st);
     const sc=up?'sup':dn?'sdn':'suk';
     const stLabel=st?st:'';
+    const onpremCidrs = r.meta?.onprem_cidrs||[];
+    const onpremBadge = onpremCidrs.length>0
+      ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:2px">${onpremCidrs.slice(0,3).map(c=>`<span style="background:rgba(16,185,129,.15);border:1px solid #10b981;color:#10b981;font-size:7px;padding:1px 4px;border-radius:3px;font-family:monospace">${c}</span>`).join('')}${onpremCidrs.length>3?`<span style="color:var(--muted);font-size:7px">+${onpremCidrs.length-3} more</span>`:''}</div>`
+      : '';
+    const rtTypeBadge = r.type==='route_table'&&r.meta?.type
+      ? `<span class="n-badge" style="border-color:${r.meta.has_internet?'var(--accent)':r.meta.has_onprem?'#10b981':r.meta.has_peering?'#7c3aed':'var(--border)'};color:${r.meta.has_internet?'var(--accent)':r.meta.has_onprem?'#10b981':r.meta.has_peering?'#a78bfa':'var(--muted)'}">${r.meta.type}</span>`
+      : '';
 
     el.innerHTML=`<div style="display:flex;align-items:flex-start;gap:8px;">
   <div class="n-icon"><img src="${icon(r.type)}" alt="${r.type}"/></div>
@@ -1120,8 +1431,8 @@ function render(){
     <div class="n-type">${conf.label}</div>
   </div>
 </div>
-<div class="n-meta"><span class="sdot ${sc}"></span><span>${r.region}</span>${stLabel?`<span class="n-badge" style="border-color:${up?'#10b981':dn?'#ef4444':'#64748b'};color:${up?'#10b981':dn?'#ef4444':'#94a3b8'}">${stLabel}</span>`:''}
-</div>`;
+<div class="n-meta"><span class="sdot ${sc}"></span><span>${r.region}</span>${stLabel?`<span class="n-badge" style="border-color:${up?'#10b981':dn?'#ef4444':'#64748b'};color:${up?'#10b981':dn?'#ef4444':'#94a3b8'}">${stLabel}</span>`:''}${rtTypeBadge}
+</div>${onpremBadge}`;
 
     el.addEventListener('click',e=>{e.stopPropagation();selNode=r.id;showDetail(r);render();});
     el.addEventListener('mousedown',e=>{
@@ -1145,7 +1456,51 @@ function showDetail(r){
   let meta='';
   if(r.meta){Object.entries(r.meta).forEach(([k,v])=>{
     if(v===null||v===undefined||v==='')return;
+    // Special rendering for route tables
+    if(k==='routes'&&Array.isArray(v)){
+      meta+=`<div class="dp-sec" style="margin-top:10px">
+<h4>Routes (${v.length})</h4>
+<div style="background:rgba(0,0,0,.3);border-radius:6px;overflow:hidden;margin-top:4px;">
+<table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:8px;">
+<tr style="background:rgba(255,255,255,.06);"><th style="padding:4px 6px;text-align:left;color:var(--muted)">Destination</th><th style="padding:4px 6px;text-align:left;color:var(--muted)">Target</th><th style="padding:4px 6px;text-align:left;color:var(--muted)">State</th></tr>`;
+      v.forEach(route=>{
+        const isOnprem = route.target&&(route.target.startsWith('vgw-')||route.target.startsWith('tgw-'))&&route.dest!=='0.0.0.0/0';
+        const isInternet = route.target&&route.target.startsWith('igw-');
+        const isLocal = route.target==='local';
+        const rowColor = isOnprem?'rgba(16,185,129,.1)':isInternet?'rgba(0,212,255,.07)':isLocal?'rgba(255,255,255,.03)':'';
+        const destColor = isOnprem?'#10b981':isInternet?'var(--accent)':'var(--text)';
+        const tag = isOnprem?'<span style="background:#10b981;color:#000;font-size:7px;padding:1px 4px;border-radius:2px;margin-left:4px">ON-PREM</span>':isInternet?'<span style="background:rgba(0,212,255,.2);color:var(--accent);font-size:7px;padding:1px 4px;border-radius:2px;margin-left:4px">INTERNET</span>':'';
+        meta+=`<tr style="border-top:1px solid rgba(255,255,255,.05);background:${rowColor}">
+<td style="padding:4px 6px;color:${destColor}">${route.dest||'—'}${tag}</td>
+<td style="padding:4px 6px;color:var(--muted);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${route.target}">${route.target||'—'}</td>
+<td style="padding:4px 6px;color:${route.state==='active'?'#10b981':'#ef4444'}">${route.state||'—'}</td>
+</tr>`;
+      });
+      meta+=`</table></div></div>`;
+      return;
+    }
+    // Special rendering for NACL rules
+    if((k==='inbound'||k==='outbound')&&Array.isArray(v)){
+      if(v.length===0)return;
+      meta+=`<div class="dp-sec" style="margin-top:10px">
+<h4>${k==='inbound'?'⬇ Inbound':'⬆ Outbound'} Rules (${v.length})</h4>
+<div style="background:rgba(0,0,0,.3);border-radius:6px;overflow:hidden;margin-top:4px;">
+<table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:8px;">
+<tr style="background:rgba(255,255,255,.06);"><th style="padding:3px 5px;text-align:left;color:var(--muted)">#</th><th style="padding:3px 5px;text-align:left;color:var(--muted)">CIDR</th><th style="padding:3px 5px;text-align:left;color:var(--muted)">Port</th><th style="padding:3px 5px;text-align:left;color:var(--muted)">Action</th></tr>`;
+      v.forEach(rule=>{
+        const isAllow=rule.action==='allow';
+        meta+=`<tr style="border-top:1px solid rgba(255,255,255,.05)">
+<td style="padding:3px 5px;color:var(--muted)">${rule.rule_number}</td>
+<td style="padding:3px 5px;color:var(--text)">${rule.cidr||'all'}</td>
+<td style="padding:3px 5px;color:var(--muted)">${rule.port_range}</td>
+<td style="padding:3px 5px;color:${isAllow?'#10b981':'#ef4444'};font-weight:700">${rule.action?.toUpperCase()}</td>
+</tr>`;
+      });
+      meta+=`</table></div></div>`;
+      return;
+    }
     if(Array.isArray(v)){v.forEach((it,i)=>{if(typeof it==='object')Object.entries(it).forEach(([ik,iv])=>{if(iv)meta+=`<div class="dp-row"><span class="dk">t${i+1}.${ik}</span><span class="dv">${iv}</span></div>`;});});return;}
+    if(typeof v==='object')return; // skip complex objects not handled above
     meta+=`<div class="dp-row"><span class="dk">${k}</span><span class="dv">${v}</span></div>`;
   });}
   let connHtml='';
