@@ -593,7 +593,8 @@ def generate_html(data, output_path):
     html = build_html(data, json_data, pwd_hash, use_password)
 
     with open(output_path, 'w') as f:
-        f.write(html)
+        # Replace marker with empty object for fresh files
+        f.write(html.replace("'__POSITIONS_JSON__'", "'{}'"))
     print(f"\n✅ HTML diagram saved: {output_path}")
 
 
@@ -814,7 +815,7 @@ body{{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);heigh
   <span class="badge bg" id="h-res">0 resources</span>
   <span class="badge bp" id="h-reg">0 regions</span>
   <span style="font-size:9px;color:var(--muted);font-family:monospace;white-space:nowrap" id="h-time"></span>
-  <button class="hbtn" onclick="saveToFile()" title="Download HTML with current layout saved">💾 Save Layout</button>
+  <button class="hbtn" onclick="saveToFile()" title="Saves your layout — positions are remembered automatically too">💾 Save Layout</button>
   <button class="hbtn" onclick="autoArrange()" title="Re-run intelligent auto-layout">🔀 Re-Layout</button>
   <button class="hbtn" onclick="exportJSON()">⬇ JSON</button>
 </div>
@@ -921,7 +922,7 @@ let isPan=false,panStart={x:0,y:0},panOrig={x:0,y:0};
 let dragNode=null,dragStart={x:0,y:0,nx:0,ny:0};
 let selNode=null,typeFilter='all',regFilter='all',searchQ='';
 let showEdges=true,showOrphans=true,showGrid=true;
-let positions={};  // SAVED POSITIONS INJECTED HERE ON SAVE
+let positions=JSON.parse('__POSITIONS_JSON__');  // DO NOT EDIT THIS LINE
 let filtersReady=false;
 
 // ── INTELLIGENT LAYOUT ───────────────────────────────────
@@ -1207,22 +1208,73 @@ window.addEventListener('mousemove',e=>{
   if(dragNode){const dx=(e.clientX-dragStart.x)/scale,dy=(e.clientY-dragStart.y)/scale;positions[dragNode]={x:dragStart.nx+dx,y:dragStart.ny+dy};render();return;}
   if(!isPan)return;panX=panOrig.x+(e.clientX-panStart.x);panY=panOrig.y+(e.clientY-panStart.y);applyT();
 });
-window.addEventListener('mouseup',()=>{isPan=false;dragNode=null;});
+window.addEventListener('mouseup',()=>{
+  if(dragNode) autoSave();  // auto-save position to localStorage on drop
+  isPan=false;dragNode=null;
+});
 ca.addEventListener('wheel',e=>{e.preventDefault();const d=e.deltaY>0?-.1:.1;scale=Math.max(.1,Math.min(3,scale+d));applyT();},{passive:false});
 ca.addEventListener('click',e=>{if(e.target===ca||e.target===document.getElementById('cv'))closeDetail();});
 
-// ── SAVE LAYOUT (downloads modified HTML with positions baked in) ──
+// ── SAVE LAYOUT ───────────────────────────────────────────
+// Strategy 1: localStorage (instant, no download needed)
+// Strategy 2: Download new HTML with positions baked in (fallback)
+
+const STORAGE_KEY = 'aws_arch_positions_' + RAW.account_id;
+
+function loadSavedPositions(){
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if(saved){
+      const parsed = JSON.parse(saved);
+      if(Object.keys(parsed).length > 0){
+        positions = parsed;
+        return true;
+      }
+    }
+  } catch(e){}
+  return false;
+}
+
+function saveToLocalStorage(){
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
+    return true;
+  } catch(e){ return false; }
+}
+
 function saveToFile(){
-  const posJson=JSON.stringify(positions);
-  let html=document.documentElement.outerHTML;
-  // Replace the positions placeholder line
-  html=html.replace(/let positions=\{[^;]*\};/,'let positions='+posJson+';');
-  const blob=new Blob([html],{type:'text/html'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  const fname='aws-arch-'+RAW.account_id+'-saved.html';
-  a.download=fname;a.click();
-  toast('💾 Saved as '+fname,'ok');
+  // Also save to localStorage instantly
+  saveToLocalStorage();
+
+  // Build new HTML with positions baked in via unique marker replacement
+  const posJson = JSON.stringify(positions);
+  let html = document.documentElement.outerHTML;
+
+  // Use the unique marker for reliable replacement
+  html = html.replace(
+    "JSON.parse('__POSITIONS_JSON__')",
+    JSON.stringify(positions)
+  );
+
+  // Also handle already-saved files where marker was already replaced
+  // by replacing the entire positions assignment up to the comment
+  html = html.replace(
+    /let positions=(\{[\s\S]*?\});  \/\/ DO NOT EDIT THIS LINE/,
+    'let positions=' + posJson + ';  // DO NOT EDIT THIS LINE'
+  );
+
+  const blob = new Blob([html], {type:'text/html'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const fname = 'aws-arch-' + RAW.account_id + '-saved.html';
+  a.download = fname;
+  a.click();
+  toast('💾 Layout saved! Open ' + fname,'ok');
+}
+
+// Auto-save positions to localStorage whenever a node is moved
+function autoSave(){
+  saveToLocalStorage();
 }
 
 function exportJSON(){
@@ -1244,14 +1296,21 @@ function initApp(){
   document.getElementById('h-res').textContent=RAW.total_resources+' resources';
   document.getElementById('h-reg').textContent=(RAW.active_regions?.length||0)+' regions';
   document.getElementById('h-time').textContent='Scanned: '+new Date(RAW.scanned_at).toLocaleString();
-  // Use saved positions if available, else smart layout
-  if(Object.keys(positions).length===0){
-    positions=smartLayout(RAW.resources);
+
+  // Priority 1: Load from localStorage (most recent user edits)
+  const fromStorage = loadSavedPositions();
+
+  // Priority 2: Use baked-in positions from saved HTML file
+  const hasBaked = !fromStorage && Object.keys(positions).length > 0;
+
+  // Priority 3: Run smart layout from scratch
+  if(!fromStorage && !hasBaked){
+    positions = smartLayout(RAW.resources);
   }
+
   buildFilters();
   render();
-  setTimeout(fitView,100);
-  document.getElementById('loading')&&(document.getElementById('loading').style.display='none');
+  setTimeout(fitView, 100);
 }
 
 ''' + pwd_script + '''
