@@ -862,11 +862,22 @@ class AWSScanner:
 def generate_html(data, output_path):
     json_data = json.dumps(data)
 
-    # ── PASSWORD PROMPT (CLI) ──────────────────
+    # ── COMPANY NAME PROMPT ────────────────────
     import getpass
     print("\n" + "="*50)
-    print("  🔐 PASSWORD PROTECT YOUR DIAGRAM")
+    print("  🏢 DIAGRAM SETUP")
     print("="*50)
+    company = input("  Enter your company name (or press Enter to skip): ").strip()
+    if not company:
+        company = "AWS Architecture"
+        print("  ℹ️  No company name — using default title.")
+    else:
+        print(f"  ✅ Company name set: {company}")
+
+    # ── PASSWORD PROMPT (CLI) ──────────────────
+    print("")
+    print("  🔐 PASSWORD PROTECTION")
+    print("-"*50)
     pwd = getpass.getpass("  Enter password to lock HTML file (or press Enter to skip): ").strip()
     if pwd:
         confirm = getpass.getpass("  Confirm password: ").strip()
@@ -882,7 +893,7 @@ def generate_html(data, output_path):
     pwd_hash = hashlib.sha256(pwd.encode()).hexdigest() if pwd else ""
     use_password = bool(pwd)
 
-    html = build_html(data, json_data, pwd_hash, use_password)
+    html = build_html(data, json_data, pwd_hash, use_password, company)
 
     with open(output_path, 'w') as f:
         # Replace marker with empty object for fresh files
@@ -890,7 +901,7 @@ def generate_html(data, output_path):
     print(f"\n✅ HTML diagram saved: {output_path}")
 
 
-def build_html(data, json_data, pwd_hash, use_password):
+def build_html(data, json_data, pwd_hash, use_password, company="AWS Architecture"):
 
     # AWS SVG icons as inline SVG data (real AWS service icons, simplified)
     AWS_ICONS = {
@@ -977,7 +988,7 @@ def build_html(data, json_data, pwd_hash, use_password):
 <div id="pwd-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0e1a;align-items:center;justify-content:center;flex-direction:column;gap:20px;">
   <div style="text-align:center;">
     <div style="font-size:48px;margin-bottom:12px;">🔐</div>
-    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#e2e8f0;margin-bottom:6px;">AWS Architecture Diagram</div>
+    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#e2e8f0;margin-bottom:6px;">{company} — Cloud Architecture</div>
     <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#64748b;margin-bottom:24px;">Account: {data['account_id']} &nbsp;·&nbsp; {data['total_resources']} resources</div>
     <div style="background:#111827;border:1px solid #1e3a5f;border-radius:12px;padding:28px;min-width:320px;">
       <div style="font-family:'Syne',sans-serif;font-size:14px;color:#94a3b8;margin-bottom:14px;">Enter password to unlock</div>
@@ -993,7 +1004,7 @@ def build_html(data, json_data, pwd_hash, use_password):
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>AWS Architecture — {data['account_id']}</title>
+<title>{company} — AWS Architecture</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap');
 :root{{--bg:#0a0e1a;--surf:#111827;--surf2:#1a2235;--border:#1e3a5f;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--danger:#ef4444;--text:#e2e8f0;--muted:#64748b;}}
@@ -1109,7 +1120,7 @@ body{{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);heigh
 <div id="toast"></div>
 
 <div id="hdr">
-  <h1>☁️ AWS Architecture</h1>
+  <h1>☁️ {company}</h1>
   <span class="badge bb" id="h-acct">Loading...</span>
   <span class="badge bg" id="h-res">0 resources</span>
   <span class="badge bp" id="h-reg">0 regions</span>
@@ -1648,6 +1659,8 @@ function toast(msg,type='ok'){
 
 // ── INIT ──────────────────────────────────────────────────
 function initApp(){
+  const COMPANY = '{company}';
+  document.title = COMPANY + ' — AWS Architecture';
   document.getElementById('h-acct').textContent='Account: '+RAW.account_id;
   document.getElementById('h-res').textContent=RAW.total_resources+' resources';
   document.getElementById('h-reg').textContent=(RAW.active_regions?.length||0)+' regions';
