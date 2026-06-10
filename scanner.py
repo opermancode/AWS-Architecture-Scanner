@@ -565,744 +565,699 @@ class AWSScanner:
 
 
 # ─────────────────────────────────────────────
-# HTML GENERATOR
+# HTML GENERATOR  (v2 — fixed double sidebar, saveable layout)
 # ─────────────────────────────────────────────
 def generate_html(data, output_path):
     json_data = json.dumps(data)
-    
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AWS Architecture — {data['account_id']}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;800&display=swap');
 
-  :root {{
-    --bg: #0a0e1a;
-    --surface: #111827;
-    --surface2: #1a2235;
-    --border: #1e3a5f;
-    --accent: #00d4ff;
-    --accent2: #7c3aed;
-    --accent3: #10b981;
-    --warn: #f59e0b;
-    --danger: #ef4444;
-    --text: #e2e8f0;
-    --muted: #64748b;
-    --grid: rgba(0, 212, 255, 0.03);
-  }}
-
-  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-
-  body {{
-    font-family: 'Syne', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    height: 100vh;
-    overflow: hidden;
-    background-image:
-      linear-gradient(var(--grid) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 40px 40px;
-  }}
-
-  /* HEADER */
-  #header {{
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    background: rgba(10,14,26,0.95);
-    border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(10px);
-    padding: 12px 20px;
-    display: flex; align-items: center; gap: 16px;
-  }}
-  #header h1 {{
-    font-size: 18px; font-weight: 800; letter-spacing: -0.5px;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    flex: 1;
-  }}
-  .badge {{
-    padding: 4px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; font-weight: 600; border: 1px solid;
-  }}
-  .badge-blue {{ border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }}
-  .badge-green {{ border-color: var(--accent3); color: var(--accent3); background: rgba(16,185,129,0.08); }}
-  .badge-purple {{ border-color: var(--accent2); color: var(--accent2); background: rgba(124,58,237,0.08); }}
-
-  /* SIDEBAR */
-  #sidebar {{
-    position: fixed; top: 53px; left: 0; bottom: 0; width: 260px; z-index: 90;
-    background: rgba(17,24,39,0.97);
-    border-right: 1px solid var(--border);
-    backdrop-filter: blur(10px);
-    overflow-y: auto;
-    padding: 12px 0;
-  }}
-  #sidebar::-webkit-scrollbar {{ width: 4px; }}
-  #sidebar::-webkit-scrollbar-track {{ background: transparent; }}
-  #sidebar::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 2px; }}
-
-  .sidebar-section {{ padding: 8px 16px 4px; }}
-  .sidebar-label {{
-    font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-    text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
-  }}
-  .filter-btn {{
-    display: flex; align-items: center; gap: 8px;
-    width: 100%; padding: 6px 10px; border-radius: 6px;
-    border: none; background: transparent; cursor: pointer;
-    color: var(--text); font-family: 'Syne', sans-serif;
-    font-size: 12px; font-weight: 600; text-align: left;
-    transition: all 0.15s;
-  }}
-  .filter-btn:hover {{ background: var(--surface2); }}
-  .filter-btn.active {{ background: var(--surface2); color: var(--accent); }}
-  .filter-dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }}
-  .filter-count {{
-    margin-left: auto; font-family: 'JetBrains Mono', monospace;
-    font-size: 10px; color: var(--muted);
-    background: var(--surface2); padding: 1px 6px; border-radius: 4px;
-  }}
-
-  /* CANVAS AREA */
-  #canvas-area {{
-    position: fixed; top: 53px; left: 260px; right: 0; bottom: 0;
-    overflow: hidden; cursor: grab;
-  }}
-  #canvas-area:active {{ cursor: grabbing; }}
-  #canvas {{
-    position: absolute; top: 0; left: 0;
-    transform-origin: 0 0;
-  }}
-
-  /* NODES */
-  .node {{
-    position: absolute;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 14px;
-    min-width: 140px;
-    max-width: 200px;
-    cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
-    user-select: none;
-  }}
-  .node:hover {{
-    border-color: var(--accent);
-    box-shadow: 0 0 20px rgba(0,212,255,0.15);
-    transform: translateY(-1px);
-    z-index: 10 !important;
-  }}
-  .node.selected {{
-    border-color: var(--accent);
-    box-shadow: 0 0 30px rgba(0,212,255,0.25);
-    z-index: 20 !important;
-  }}
-  .node-icon {{ font-size: 20px; margin-bottom: 4px; }}
-  .node-name {{
-    font-size: 12px; font-weight: 700; color: var(--text);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }}
-  .node-type {{
-    font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace;
-    margin-top: 2px;
-  }}
-  .node-region {{
-    font-size: 9px; color: var(--muted); margin-top: 4px;
-    display: flex; align-items: center; gap: 4px;
-  }}
-  .status-dot {{ width: 6px; height: 6px; border-radius: 50%; }}
-  .status-up {{ background: var(--accent3); }}
-  .status-down {{ background: var(--danger); }}
-  .status-unknown {{ background: var(--muted); }}
-
-  /* EDGE SVG */
-  #edges-svg {{
-    position: absolute; top: 0; left: 0;
-    pointer-events: none; overflow: visible;
-  }}
-  .edge {{ stroke: var(--border); stroke-width: 1.5; fill: none; opacity: 0.6; }}
-  .edge-label {{ font-size: 9px; fill: var(--muted); font-family: 'JetBrains Mono', monospace; }}
-
-  /* DETAIL PANEL */
-  #detail-panel {{
-    position: fixed; top: 53px; right: 0; bottom: 0; width: 300px;
-    background: rgba(17,24,39,0.97);
-    border-left: 1px solid var(--border);
-    backdrop-filter: blur(10px);
-    transform: translateX(100%);
-    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
-    z-index: 95; overflow-y: auto; padding: 20px;
-  }}
-  #detail-panel.open {{ transform: translateX(0); }}
-  #detail-panel::-webkit-scrollbar {{ width: 4px; }}
-  #detail-panel::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 2px; }}
-
-  .detail-type {{
-    font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-    text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
-  }}
-  .detail-name {{
-    font-size: 18px; font-weight: 800; margin-bottom: 16px;
-    line-height: 1.2;
-  }}
-  .detail-row {{
-    display: flex; justify-content: space-between; align-items: flex-start;
-    padding: 8px 0; border-bottom: 1px solid var(--surface2);
-    gap: 12px;
-  }}
-  .detail-key {{
-    font-size: 11px; color: var(--muted); flex-shrink: 0;
-    font-family: 'JetBrains Mono', monospace;
-  }}
-  .detail-val {{
-    font-size: 11px; color: var(--text); text-align: right;
-    word-break: break-all; font-family: 'JetBrains Mono', monospace;
-  }}
-  .detail-connections {{ margin-top: 16px; }}
-  .detail-connections h4 {{
-    font-size: 11px; font-weight: 700; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
-  }}
-  .conn-item {{
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 8px; border-radius: 6px; margin-bottom: 4px;
-    background: var(--surface2); font-size: 11px; cursor: pointer;
-    transition: background 0.15s;
-  }}
-  .conn-item:hover {{ background: var(--border); }}
-
-  /* CONTROLS */
-  #controls {{
-    position: fixed; bottom: 24px; right: 24px; z-index: 100;
-    display: flex; flex-direction: column; gap: 6px;
-  }}
-  .ctrl-btn {{
-    width: 36px; height: 36px; border-radius: 8px;
-    background: var(--surface); border: 1px solid var(--border);
-    color: var(--text); cursor: pointer; font-size: 16px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s; font-family: monospace;
-  }}
-  .ctrl-btn:hover {{ border-color: var(--accent); color: var(--accent); }}
-
-  /* SEARCH */
-  #search-wrap {{
-    position: fixed; top: 65px; left: 270px; z-index: 95;
-  }}
-  #search {{
-    background: var(--surface); border: 1px solid var(--border);
-    color: var(--text); padding: 8px 14px; border-radius: 8px;
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
-    width: 220px; outline: none; transition: border-color 0.15s;
-  }}
-  #search:focus {{ border-color: var(--accent); }}
-  #search::placeholder {{ color: var(--muted); }}
-
-  /* STATS BAR */
-  #stats-bar {{
-    position: fixed; bottom: 0; left: 260px; right: 0; z-index: 90;
-    background: rgba(10,14,26,0.9); border-top: 1px solid var(--border);
-    padding: 6px 16px; display: flex; gap: 24px; align-items: center;
-    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted);
-  }}
-  .stat-item {{ display: flex; gap: 6px; align-items: center; }}
-  .stat-val {{ color: var(--accent); font-weight: 600; }}
-
-  /* REGION GROUPS */
-  .region-group {{
-    position: absolute;
-    border: 1px dashed rgba(0,212,255,0.15);
-    border-radius: 16px;
-    background: rgba(0,212,255,0.02);
-  }}
-  .region-label {{
-    position: absolute; top: -10px; left: 16px;
-    font-size: 10px; font-weight: 700; letter-spacing: 1px;
-    text-transform: uppercase; color: rgba(0,212,255,0.4);
-    background: var(--bg); padding: 0 6px;
-  }}
-
-  /* LOADING */
-  #loading {{
-    position: fixed; inset: 0; z-index: 999;
-    background: var(--bg); display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 16px;
-  }}
-  .loader {{
-    width: 48px; height: 48px; border-radius: 50%;
-    border: 3px solid var(--surface2);
-    border-top-color: var(--accent);
-    animation: spin 0.8s linear infinite;
-  }}
-  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-  .loader-text {{ font-size: 14px; color: var(--muted); }}
-
-  .close-btn {{
-    position: absolute; top: 16px; right: 16px;
-    background: transparent; border: none; color: var(--muted);
-    cursor: pointer; font-size: 18px; transition: color 0.15s;
-  }}
-  .close-btn:hover {{ color: var(--text); }}
-</style>
-</head>
-<body>
-
-<div id="loading">
-  <div class="loader"></div>
-  <div class="loader-text">Building architecture diagram...</div>
-</div>
-
-<div id="header">
-  <h1>☁️ AWS Architecture Map</h1>
-  <span class="badge badge-blue" id="hdr-account">Account: loading...</span>
-  <span class="badge badge-green" id="hdr-resources">0 resources</span>
-  <span class="badge badge-purple" id="hdr-regions">0 regions</span>
-  <span style="font-size:11px;color:var(--muted);font-family:monospace" id="hdr-time"></span>
-</div>
-
-<div id="sidebar">
-  <div class="sidebar-section">
-    <div class="sidebar-label">Filter by Type</div>
-    <button class="filter-btn active" onclick="filterType('all')">
-      <span class="filter-dot" style="background:var(--accent)"></span>
-      All Resources
-      <span class="filter-count" id="cnt-all">0</span>
-    </button>
-  </div>
-  <div class="sidebar-section" id="type-filters"></div>
-  <div class="sidebar-section" style="margin-top:8px">
-    <div class="sidebar-label">Filter by Region</div>
-    <div id="region-filters"></div>
-  </div>
-</div>
-
-<input id="search" placeholder="🔍 Search resources..." oninput="doSearch(this.value)">
-
-<div id="canvas-area">
-  <div id="canvas">
-    <svg id="edges-svg"></svg>
-  </div>
-</div>
-
-<div id="detail-panel">
-  <button class="close-btn" onclick="closeDetail()">✕</button>
-  <div id="detail-content"></div>
-</div>
-
-<div id="controls">
-  <button class="ctrl-btn" onclick="zoom(0.2)" title="Zoom in">+</button>
-  <button class="ctrl-btn" onclick="zoom(-0.2)" title="Zoom out">−</button>
-  <button class="ctrl-btn" onclick="resetView()" title="Reset view">⊙</button>
-  <button class="ctrl-btn" onclick="exportJSON()" title="Export JSON">↓</button>
-</div>
-
-<div id="stats-bar">
-  <div class="stat-item">Resources: <span class="stat-val" id="stat-res">0</span></div>
-  <div class="stat-item">Connections: <span class="stat-val" id="stat-conn">0</span></div>
-  <div class="stat-item">Regions: <span class="stat-val" id="stat-reg">0</span></div>
-  <div class="stat-item">Visible: <span class="stat-val" id="stat-vis">0</span></div>
-</div>
-
-<script>
-const RAW_DATA = {json_data};
-
-// ── ICONS & COLORS ──────────────────────────
-const TYPE_CONFIG = {{
-  vpc:          {{ icon: '🏗️',  color: '#3b82f6', label: 'VPC' }},
-  subnet:       {{ icon: '🔷',  color: '#6366f1', label: 'Subnet' }},
-  igw:          {{ icon: '🌐',  color: '#06b6d4', label: 'Internet GW' }},
-  nat:          {{ icon: '🔀',  color: '#0ea5e9', label: 'NAT GW' }},
-  sg:           {{ icon: '🛡️',  color: '#8b5cf6', label: 'Security Group' }},
-  ec2:          {{ icon: '💻',  color: '#10b981', label: 'EC2' }},
-  rds:          {{ icon: '🗄️',  color: '#f59e0b', label: 'RDS' }},
-  s3:           {{ icon: '🪣',  color: '#ef4444', label: 'S3' }},
-  lambda:       {{ icon: 'λ',   color: '#f97316', label: 'Lambda' }},
-  elb:          {{ icon: '⚖️',  color: '#14b8a6', label: 'Load Balancer' }},
-  ecs:          {{ icon: '📦',  color: '#84cc16', label: 'ECS' }},
-  eks:          {{ icon: '☸️',  color: '#06b6d4', label: 'EKS' }},
-  dynamodb:     {{ icon: '⚡',  color: '#a78bfa', label: 'DynamoDB' }},
-  sns:          {{ icon: '📣',  color: '#fb923c', label: 'SNS' }},
-  sqs:          {{ icon: '📬',  color: '#fbbf24', label: 'SQS' }},
-  elasticache:  {{ icon: '⚙️',  color: '#34d399', label: 'ElastiCache' }},
-  cloudfront:   {{ icon: '🚀',  color: '#60a5fa', label: 'CloudFront' }},
-  vpn:          {{ icon: '🔐',  color: '#c084fc', label: 'VPN' }},
-  cgw:          {{ icon: '🏢',  color: '#94a3b8', label: 'Customer GW' }},
-  vgw:          {{ icon: '🔌',  color: '#7dd3fc', label: 'Virtual GW' }},
-}};
-
-function typeConf(t) {{
-  return TYPE_CONFIG[t] || {{ icon: '📌', color: '#64748b', label: t.toUpperCase() }};
-}}
-
-// ── STATE ────────────────────────────────────
-let scale = 1, panX = 20, panY = 20;
-let isDragging = false, dragStart = {{ x: 0, y: 0 }}, panStart = {{ x: 0, y: 0 }};
-let selectedNode = null;
-let activeTypeFilter = 'all';
-let activeRegionFilter = 'all';
-let searchTerm = '';
-let nodePositions = {{}};
-let draggingNode = null;
-let nodeDragStart = {{ x: 0, y: 0, nx: 0, ny: 0 }};
-
-// ── LAYOUT ───────────────────────────────────
-function layoutNodes(resources) {{
-  const byRegion = {{}};
-  resources.forEach(r => {{
-    if (!byRegion[r.region]) byRegion[r.region] = [];
-    byRegion[r.region].push(r);
-  }});
-
-  let globalX = 60;
-  const positions = {{}};
-
-  Object.entries(byRegion).forEach(([region, nodes]) => {{
-    // group by type within region
-    const byType = {{}};
-    nodes.forEach(n => {{
-      if (!byType[n.type]) byType[n.type] = [];
-      byType[n.type].push(n);
-    }});
-
-    let regionY = 60;
-    const regionStartX = globalX;
-
-    Object.entries(byType).forEach(([type, typeNodes]) => {{
-      typeNodes.forEach((node, i) => {{
-        positions[node.id] = {{
-          x: globalX + (i % 4) * 200,
-          y: regionY + Math.floor(i / 4) * 130
-        }};
-      }});
-      const rows = Math.ceil(typeNodes.length / 4);
-      regionY += rows * 130 + 20;
-    }});
-
-    const regionWidth = Math.min(nodes.length, 4) * 200 + 100;
-    globalX += regionWidth + 80;
-  }});
-
-  return positions;
-}}
-
-// ── RENDER ───────────────────────────────────
-function getVisibleResources() {{
-  return RAW_DATA.resources.filter(r => {{
-    if (activeTypeFilter !== 'all' && r.type !== activeTypeFilter) return false;
-    if (activeRegionFilter !== 'all' && r.region !== activeRegionFilter) return false;
-    if (searchTerm) {{
-      const q = searchTerm.toLowerCase();
-      return r.name.toLowerCase().includes(q) ||
-             r.id.toLowerCase().includes(q) ||
-             r.type.toLowerCase().includes(q) ||
-             r.region.toLowerCase().includes(q);
-    }}
-    return true;
-  }});
-}}
-
-function render() {{
-  const canvas = document.getElementById('canvas');
-  const svg = document.getElementById('edges-svg');
-
-  // Clear nodes (keep svg)
-  Array.from(canvas.children).forEach(c => {{
-    if (c.id !== 'edges-svg') c.remove();
-  }});
-  svg.innerHTML = '';
-
-  const visible = getVisibleResources();
-  const visibleIds = new Set(visible.map(r => r.id));
-
-  // Update positions for new nodes
-  visible.forEach(r => {{
-    if (!nodePositions[r.id]) {{
-      nodePositions[r.id] = {{ x: 100 + Math.random() * 800, y: 100 + Math.random() * 600 }};
-    }}
-  }});
-
-  // Draw edges first
-  const visibleConns = RAW_DATA.connections.filter(c => visibleIds.has(c.from) && visibleIds.has(c.to));
-  visibleConns.forEach(conn => {{
-    const from = nodePositions[conn.from];
-    const to = nodePositions[conn.to];
-    if (!from || !to) return;
-
-    const fx = from.x + 100, fy = from.y + 45;
-    const tx = to.x + 100, ty = to.y + 45;
-    const mx = (fx + tx) / 2, my = (fy + ty) / 2 - 30;
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('class', 'edge');
-    path.setAttribute('d', `M ${{fx}} ${{fy}} Q ${{mx}} ${{my}} ${{tx}} ${{ty}}`);
-    svg.appendChild(path);
-
-    if (conn.label) {{
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', mx);
-      text.setAttribute('y', my - 4);
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('class', 'edge-label');
-      text.textContent = conn.label;
-      svg.appendChild(text);
-    }}
-  }});
-
-  // Draw nodes
-  visible.forEach(r => {{
-    const pos = nodePositions[r.id];
-    const conf = typeConf(r.type);
-    const node = document.createElement('div');
-    node.className = 'node' + (selectedNode === r.id ? ' selected' : '');
-    node.id = `node-${{r.id}}`;
-    node.style.left = pos.x + 'px';
-    node.style.top = pos.y + 'px';
-    node.style.zIndex = selectedNode === r.id ? 20 : 1;
-    node.style.borderColor = selectedNode === r.id ? conf.color : '';
-
-    const status = r.meta?.state || r.meta?.status || '';
-    const isUp = ['running','available','active','up','enabled','Up'].includes(status);
-    const isDown = ['stopped','down','Down','failed','error'].includes(status);
-    const statusClass = isUp ? 'status-up' : isDown ? 'status-down' : 'status-unknown';
-
-    node.innerHTML = `
-      <div class="node-icon">${{conf.icon}}</div>
-      <div class="node-name" title="${{r.name}}">${{r.name}}</div>
-      <div class="node-type">${{conf.label}}</div>
-      <div class="node-region">
-        <span class="status-dot ${{statusClass}}"></span>
-        ${{r.region}}
-      </div>
-    `;
-
-    // Click to select
-    node.addEventListener('click', (e) => {{
-      e.stopPropagation();
-      selectedNode = r.id;
-      showDetail(r);
-      render();
-    }});
-
-    // Drag node
-    node.addEventListener('mousedown', (e) => {{
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      draggingNode = r.id;
-      nodeDragStart = {{
-        x: e.clientX, y: e.clientY,
-        nx: nodePositions[r.id].x,
-        ny: nodePositions[r.id].y
-      }};
-    }});
-
-    canvas.appendChild(node);
-  }});
-
-  // Update stats
-  document.getElementById('stat-vis').textContent = visible.length;
-  document.getElementById('stat-res').textContent = RAW_DATA.resources.length;
-  document.getElementById('stat-conn').textContent = RAW_DATA.connections.length;
-  document.getElementById('stat-reg').textContent = RAW_DATA.active_regions?.length || 0;
-}};
-
-// ── DETAIL PANEL ─────────────────────────────
-function showDetail(r) {{
-  const panel = document.getElementById('detail-panel');
-  const content = document.getElementById('detail-content');
-  const conf = typeConf(r.type);
-
-  const conns = RAW_DATA.connections.filter(c => c.from === r.id || c.to === r.id);
-
-  let metaHtml = '';
-  if (r.meta) {{
-    Object.entries(r.meta).forEach(([k, v]) => {{
-      if (v === null || v === undefined || v === '') return;
-      if (Array.isArray(v)) {{
-        v.forEach((item, i) => {{
-          if (typeof item === 'object') {{
-            Object.entries(item).forEach(([ik, iv]) => {{
-              if (iv) metaHtml += `<div class="detail-row"><span class="detail-key">tunnel${{i+1}}.${{ik}}</span><span class="detail-val">${{iv}}</span></div>`;
-            }});
-          }}
-        }});
-        return;
-      }}
-      metaHtml += `<div class="detail-row"><span class="detail-key">${{k}}</span><span class="detail-val">${{v}}</span></div>`;
-    }});
-  }}
-
-  let connHtml = '';
-  conns.slice(0, 10).forEach(c => {{
-    const otherId = c.from === r.id ? c.to : c.from;
-    const other = RAW_DATA.resources.find(x => x.id === otherId);
-    const dir = c.from === r.id ? '→' : '←';
-    const otherConf = typeConf(other?.type || '');
-    connHtml += `<div class="conn-item" onclick="selectNode('${{otherId}}')">${{dir}} ${{otherConf.icon}} ${{other?.name || otherId}} <span style="color:var(--muted);margin-left:auto;font-size:9px">${{c.label}}</span></div>`;
-  }});
-
-  content.innerHTML = `
-    <div class="detail-type">${{conf.icon}} ${{conf.label}}</div>
-    <div class="detail-name">${{r.name}}</div>
-    <div class="detail-row"><span class="detail-key">id</span><span class="detail-val">${{r.id}}</span></div>
-    <div class="detail-row"><span class="detail-key">region</span><span class="detail-val">${{r.region}}</span></div>
-    ${{metaHtml}}
-    ${{conns.length ? `<div class="detail-connections"><h4>Connections (${{conns.length}})</h4>${{connHtml}}</div>` : ''}}
-  `;
-
-  panel.classList.add('open');
-}}
-
-function closeDetail() {{
-  document.getElementById('detail-panel').classList.remove('open');
-  selectedNode = null;
-  render();
-}}
-
-function selectNode(id) {{
-  const r = RAW_DATA.resources.find(x => x.id === id);
-  if (r) {{ selectedNode = id; showDetail(r); render(); }}
-}}
-
-// ── FILTERS ──────────────────────────────────
-function buildFilters() {{
-  const typeCounts = {{}};
-  RAW_DATA.resources.forEach(r => {{
-    typeCounts[r.type] = (typeCounts[r.type] || 0) + 1;
-  }});
-  document.getElementById('cnt-all').textContent = RAW_DATA.resources.length;
-
-  const typeEl = document.getElementById('type-filters');
-  Object.entries(typeCounts).sort((a,b) => b[1]-a[1]).forEach(([type, count]) => {{
-    const conf = typeConf(type);
-    const btn = document.createElement('button');
-    btn.className = 'filter-btn';
-    btn.innerHTML = `<span class="filter-dot" style="background:${{conf.color}}"></span>${{conf.label}}<span class="filter-count">${{count}}</span>`;
-    btn.onclick = () => filterType(type);
-    typeEl.appendChild(btn);
-  }});
-
-  const regionEl = document.getElementById('region-filters');
-  const regions = [...new Set(RAW_DATA.resources.map(r => r.region))].sort();
-  regions.forEach(region => {{
-    const count = RAW_DATA.resources.filter(r => r.region === region).length;
-    const btn = document.createElement('button');
-    btn.className = 'filter-btn';
-    btn.innerHTML = `<span class="filter-dot" style="background:var(--accent3)"></span>${{region}}<span class="filter-count">${{count}}</span>`;
-    btn.onclick = () => filterRegion(region);
-    regionEl.appendChild(btn);
-  }});
-}}
-
-function filterType(type) {{
-  activeTypeFilter = type;
-  document.querySelectorAll('#type-filters .filter-btn, .filter-btn:first-of-type').forEach(b => b.classList.remove('active'));
-  event.target.closest('.filter-btn').classList.add('active');
-  render();
-}}
-
-function filterRegion(region) {{
-  activeRegionFilter = activeRegionFilter === region ? 'all' : region;
-  render();
-}}
-
-function doSearch(val) {{
-  searchTerm = val;
-  render();
-}}
-
-// ── PAN & ZOOM ───────────────────────────────
-function applyTransform() {{
-  document.getElementById('canvas').style.transform = `translate(${{panX}}px, ${{panY}}px) scale(${{scale}})`;
-}}
-
-function zoom(delta) {{
-  scale = Math.max(0.2, Math.min(3, scale + delta));
-  applyTransform();
-}}
-
-function resetView() {{
-  scale = 0.8; panX = 20; panY = 20;
-  applyTransform();
-}}
-
-// ── CANVAS DRAG ──────────────────────────────
-const canvasArea = document.getElementById('canvas-area');
-
-canvasArea.addEventListener('mousedown', (e) => {{
-  if (draggingNode) return;
-  isDragging = true;
-  dragStart = {{ x: e.clientX, y: e.clientY }};
-  panStart = {{ x: panX, y: panY }};
-}});
-
-window.addEventListener('mousemove', (e) => {{
-  if (draggingNode) {{
-    const dx = (e.clientX - nodeDragStart.x) / scale;
-    const dy = (e.clientY - nodeDragStart.y) / scale;
-    nodePositions[draggingNode] = {{
-      x: nodeDragStart.nx + dx,
-      y: nodeDragStart.ny + dy
-    }};
-    render();
-    return;
-  }}
-  if (!isDragging) return;
-  panX = panStart.x + (e.clientX - dragStart.x);
-  panY = panStart.y + (e.clientY - dragStart.y);
-  applyTransform();
-}});
-
-window.addEventListener('mouseup', () => {{
-  isDragging = false;
-  draggingNode = null;
-}});
-
-canvasArea.addEventListener('wheel', (e) => {{
-  e.preventDefault();
-  zoom(e.deltaY > 0 ? -0.1 : 0.1);
-}}, {{ passive: false }});
-
-canvasArea.addEventListener('click', (e) => {{
-  if (e.target === canvasArea || e.target === document.getElementById('canvas')) {{
-    closeDetail();
-  }}
-}});
-
-// ── EXPORT ───────────────────────────────────
-function exportJSON() {{
-  const blob = new Blob([JSON.stringify(RAW_DATA, null, 2)], {{type:'application/json'}});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `aws-architecture-${{RAW_DATA.account_id}}.json`;
-  a.click();
-}}
-
-// ── INIT ─────────────────────────────────────
-window.addEventListener('load', () => {{
-  document.getElementById('hdr-account').textContent = 'Account: ' + RAW_DATA.account_id;
-  document.getElementById('hdr-resources').textContent = RAW_DATA.total_resources + ' resources';
-  document.getElementById('hdr-regions').textContent = (RAW_DATA.active_regions?.length || 0) + ' regions';
-  document.getElementById('hdr-time').textContent = 'Scanned: ' + new Date(RAW_DATA.scanned_at).toLocaleString();
-
-  // Auto layout
-  nodePositions = layoutNodes(RAW_DATA.resources);
-
-  buildFilters();
-  render();
-  resetView();
-  document.getElementById('loading').style.display = 'none';
-}});
-</script>
-</body>
-</html>"""
+    # ── PASSWORD PROMPT (CLI) ──────────────────
+    import getpass
+    print("\n" + "="*50)
+    print("  🔐 PASSWORD PROTECT YOUR DIAGRAM")
+    print("="*50)
+    pwd = getpass.getpass("  Enter password to lock HTML file (or press Enter to skip): ").strip()
+    if pwd:
+        confirm = getpass.getpass("  Confirm password: ").strip()
+        if pwd != confirm:
+            print("  ⚠️  Passwords don't match — saving WITHOUT password protection.")
+            pwd = ""
+        else:
+            print("  ✅ Password set — HTML will be locked.")
+    else:
+        print("  ℹ️  No password — HTML saved without lock.")
+
+    import hashlib, base64
+    pwd_hash = hashlib.sha256(pwd.encode()).hexdigest() if pwd else ""
+    use_password = bool(pwd)
+
+    html = build_html(data, json_data, pwd_hash, use_password)
 
     with open(output_path, 'w') as f:
         f.write(html)
     print(f"\n✅ HTML diagram saved: {output_path}")
+
+
+def build_html(data, json_data, pwd_hash, use_password):
+
+    # AWS SVG icons as inline SVG data (real AWS service icons, simplified)
+    AWS_ICONS = {
+        'vpc':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#8C4FFF"/><path d="M20 8L32 15V25L20 32L8 25V15L20 8Z" stroke="white" stroke-width="2" fill="none"/><circle cx="20" cy="20" r="4" fill="white"/></svg>',
+        'subnet':      '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#6366F1"/><rect x="8" y="8" width="24" height="24" rx="3" stroke="white" stroke-width="2" fill="none"/><rect x="14" y="14" width="12" height="12" rx="2" fill="white" opacity="0.7"/></svg>',
+        'igw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#06B6D4"/><circle cx="20" cy="20" r="10" stroke="white" stroke-width="2" fill="none"/><path d="M20 10V30M10 20H30" stroke="white" stroke-width="1.5"/><ellipse cx="20" cy="20" rx="5" ry="10" stroke="white" stroke-width="1.5" fill="none"/></svg>',
+        'nat':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#0EA5E9"/><path d="M10 20H30M24 14L30 20L24 26" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 14L10 20L16 26" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/></svg>',
+        'sg':          '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#8B5CF6"/><path d="M20 8L28 12V20C28 25 24 29 20 31C16 29 12 25 12 20V12L20 8Z" stroke="white" stroke-width="2" fill="none"/><path d="M16 20L19 23L24 17" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        'ec2':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF9900"/><rect x="8" y="12" width="24" height="16" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M13 28V32M20 28V32M27 28V32" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="14" cy="20" r="2" fill="white"/><path d="M19 20H26" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M19 17H26" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'rds':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#2196F3"/><ellipse cx="20" cy="14" rx="11" ry="5" stroke="white" stroke-width="2" fill="none"/><path d="M9 14V26C9 28.8 14 31 20 31C26 31 31 28.8 31 26V14" stroke="white" stroke-width="2"/><path d="M9 20C9 22.8 14 25 20 25C26 25 31 22.8 31 20" stroke="white" stroke-width="1.5"/></svg>',
+        's3':          '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#569A31"/><path d="M20 9L30 13.5V26.5L20 31L10 26.5V13.5L20 9Z" stroke="white" stroke-width="2" fill="none"/><path d="M10 13.5L20 18L30 13.5" stroke="white" stroke-width="1.5"/><path d="M20 18V31" stroke="white" stroke-width="1.5"/></svg>',
+        'lambda':      '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF9900"/><path d="M11 30L17 16L20 23L23 18L29 30" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M11 10H15L18 18" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
+        'elb':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#8C4FFF"/><circle cx="20" cy="20" r="4" fill="white"/><path d="M20 16V10M20 30V24M16 20H10M30 20H24" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="20" cy="10" r="2" fill="white" opacity="0.7"/><circle cx="20" cy="30" r="2" fill="white" opacity="0.7"/><circle cx="10" cy="20" r="2" fill="white" opacity="0.7"/><circle cx="30" cy="20" r="2" fill="white" opacity="0.7"/></svg>',
+        'ecs':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF9900"/><rect x="9" y="9" width="10" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><rect x="21" y="9" width="10" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><rect x="9" y="21" width="10" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><rect x="21" y="21" width="10" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/></svg>',
+        'eks':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#326CE5"/><path d="M20 9L29 14.5V25.5L20 31L11 25.5V14.5L20 9Z" stroke="white" stroke-width="2" fill="none"/><circle cx="20" cy="20" r="3" fill="white"/><path d="M20 13V17M20 23V27M14 16.5L17.5 18.5M22.5 21.5L26 23.5M14 23.5L17.5 21.5M22.5 18.5L26 16.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'dynamodb':    '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#2196F3"/><ellipse cx="20" cy="12" rx="11" ry="4" stroke="white" stroke-width="2" fill="none"/><ellipse cx="20" cy="20" rx="11" ry="4" stroke="white" stroke-width="2" fill="none"/><path d="M9 12V28C9 30.2 14 32 20 32C26 32 31 30.2 31 28V12" stroke="white" stroke-width="1.5"/></svg>',
+        'sns':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF4F8B"/><path d="M10 24L15 20H20V14L30 20L20 26V20H15L10 24Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
+        'sqs':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF4F8B"/><rect x="8" y="13" width="24" height="14" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M12 18H28M12 22H22" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'elasticache': '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#C7131F"/><path d="M12 20C12 15.6 15.6 12 20 12C24.4 12 28 15.6 28 20" stroke="white" stroke-width="2" fill="none"/><path d="M9 20C9 14 14 9 20 9C26 9 31 14 31 20" stroke="white" stroke-width="1.5" fill="none" opacity="0.6"/><ellipse cx="20" cy="22" rx="8" ry="4" stroke="white" stroke-width="2" fill="none"/><path d="M12 22V26C12 28.2 15.6 30 20 30C24.4 30 28 28.2 28 26V22" stroke="white" stroke-width="1.5"/></svg>',
+        'cloudfront':  '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#8C4FFF"/><path d="M10 22C10 18.7 12.7 16 16 16C16.4 12.7 19.2 10 23 10C27.4 10 31 13.6 31 18C31 18 31 18 31 18C32.1 18.5 33 19.7 33 21C33 22.7 31.7 24 30 24H10C8.3 24 10 22 10 22Z" stroke="white" stroke-width="2" fill="none"/><path d="M14 24V30M20 24V30M26 24V30" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'vpn':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#C7131F"/><rect x="14" y="17" width="12" height="10" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M17 17V15C17 13.3 18.3 12 20 12C21.7 12 23 13.3 23 15V17" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="20" cy="22" r="1.5" fill="white"/><path d="M20 23.5V25.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'cgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#546E7A"/><rect x="10" y="14" width="20" height="16" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M16 14V11M24 14V11" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M14 19H26M14 23H22" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'vgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#0D86FF"/><path d="M20 10V30M14 14L20 10L26 14M14 26L20 30L26 26" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 20H30" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    }
+
+    def get_icon_svg(rtype):
+        svg = AWS_ICONS.get(rtype, f'<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#546E7A"/><text x="20" y="25" text-anchor="middle" fill="white" font-size="14" font-family="monospace">{rtype[:3].upper()}</text></svg>')
+        # encode as base64 data URI
+        import base64
+        encoded = base64.b64encode(svg.encode()).decode()
+        return f"data:image/svg+xml;base64,{encoded}"
+
+    icons_js = "const AWS_ICONS = {" + ",".join([f'"{k}":"{get_icon_svg(k)}"' for k in AWS_ICONS.keys()]) + "};"
+
+    pwd_script = ""
+    if use_password:
+        pwd_script = f"""
+// ── PASSWORD PROTECTION ──
+(function(){{
+  const HASH = "{pwd_hash}";
+  function sha256(str) {{
+    // Simple check using stored hash
+    return fetch('https://checknil.invalid').catch(()=>{{}}).then(()=>{{}});
+  }}
+  // We use a synchronous check approach with SubtleCrypto
+  async function checkPwd() {{
+    const overlay = document.getElementById('pwd-overlay');
+    const input = document.getElementById('pwd-input');
+    const err = document.getElementById('pwd-err');
+    const entered = input.value;
+    if(!entered) return;
+    const msgBuffer = new TextEncoder().encode(entered);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    if(hashHex === HASH) {{
+      overlay.style.display='none';
+      document.getElementById('main-wrap').style.display='block';
+      initApp();
+    }} else {{
+      err.textContent = '❌ Wrong password. Try again.';
+      input.value='';
+      input.focus();
+    }}
+  }}
+  window.checkPwd = checkPwd;
+  document.addEventListener('DOMContentLoaded', ()=>{{
+    document.getElementById('main-wrap').style.display='none';
+    document.getElementById('pwd-overlay').style.display='flex';
+    document.getElementById('pwd-input').addEventListener('keydown', e=>{{if(e.key==='Enter')checkPwd();}});
+  }});
+}})();
+"""
+    else:
+        pwd_script = "document.addEventListener('DOMContentLoaded', ()=>{ document.getElementById('pwd-overlay').style.display='none'; initApp(); });"
+
+    pwd_overlay_html = f"""
+<div id="pwd-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0e1a;align-items:center;justify-content:center;flex-direction:column;gap:20px;">
+  <div style="text-align:center;">
+    <div style="font-size:48px;margin-bottom:12px;">🔐</div>
+    <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#e2e8f0;margin-bottom:6px;">AWS Architecture Diagram</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#64748b;margin-bottom:24px;">Account: {data['account_id']} &nbsp;·&nbsp; {data['total_resources']} resources</div>
+    <div style="background:#111827;border:1px solid #1e3a5f;border-radius:12px;padding:28px;min-width:320px;">
+      <div style="font-family:'Syne',sans-serif;font-size:14px;color:#94a3b8;margin-bottom:14px;">Enter password to unlock</div>
+      <input id="pwd-input" type="password" placeholder="Password" style="width:100%;padding:10px 14px;background:#0a0e1a;border:1px solid #1e3a5f;border-radius:8px;color:#e2e8f0;font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;margin-bottom:10px;" autofocus/>
+      <button onclick="checkPwd()" style="width:100%;padding:10px;background:linear-gradient(135deg,#00d4ff,#7c3aed);border:none;border-radius:8px;color:white;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;">Unlock Diagram</button>
+      <div id="pwd-err" style="color:#ef4444;font-size:11px;margin-top:8px;font-family:'JetBrains Mono',monospace;min-height:16px;"></div>
+    </div>
+  </div>
+</div>
+""" if use_password else '<div id="pwd-overlay" style="display:none"></div>'
+
+    return f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AWS Architecture — {data['account_id']}</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap');
+:root{{--bg:#0a0e1a;--surf:#111827;--surf2:#1a2235;--border:#1e3a5f;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--danger:#ef4444;--text:#e2e8f0;--muted:#64748b;}}
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;
+  background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:48px 48px;}}
+
+/* ── HEADER ── */
+#hdr{{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,14,26,.96);border-bottom:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(12px);height:46px;}}
+#hdr h1{{font-size:15px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;flex:1;letter-spacing:-.3px;}}
+.badge{{padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;border:1px solid;white-space:nowrap;}}
+.bb{{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.07);}}
+.bg{{border-color:var(--accent3);color:var(--accent3);background:rgba(16,185,129,.07);}}
+.bp{{border-color:var(--accent2);color:var(--accent2);background:rgba(124,58,237,.07);}}
+.hbtn{{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:var(--surf);color:var(--text);cursor:pointer;font-family:'Syne',sans-serif;font-size:11px;font-weight:600;transition:all .15s;white-space:nowrap;}}
+.hbtn:hover{{border-color:var(--accent);color:var(--accent);}}
+
+/* ── SIDEBAR ── */
+#sidebar{{position:fixed;top:46px;left:0;bottom:22px;width:232px;z-index:90;background:rgba(15,20,32,.97);border-right:1px solid var(--border);overflow-y:auto;}}
+#sidebar::-webkit-scrollbar{{width:3px;}}
+#sidebar::-webkit-scrollbar-thumb{{background:var(--border);border-radius:2px;}}
+.sbs{{padding:10px 12px 4px;}}
+.sbl{{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;padding-left:2px;}}
+.fb{{display:flex;align-items:center;gap:7px;width:100%;padding:5px 8px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text);font-family:'Syne',sans-serif;font-size:11px;font-weight:600;text-align:left;transition:all .12s;}}
+.fb:hover{{background:var(--surf2);}}
+.fb.active{{background:var(--surf2);color:var(--accent);}}
+.fd{{width:7px;height:7px;border-radius:50%;flex-shrink:0;}}
+.fc{{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;}}
+.sb-divider{{height:1px;background:var(--border);margin:8px 12px;}}
+
+/* ── SEARCH ── */
+#srch-wrap{{position:fixed;top:54px;left:242px;z-index:95;}}
+#srch{{background:var(--surf);border:1px solid var(--border);color:var(--text);padding:5px 11px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;width:190px;outline:none;transition:border-color .15s;}}
+#srch:focus{{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,212,255,.1);}}
+#srch::placeholder{{color:var(--muted);}}
+
+/* ── CANVAS ── */
+#ca{{position:fixed;top:46px;left:232px;right:0;bottom:22px;overflow:hidden;cursor:grab;}}
+#ca:active{{cursor:grabbing;}}
+#cv{{position:absolute;top:0;left:0;transform-origin:0 0;}}
+#edges{{position:absolute;top:0;left:0;pointer-events:none;overflow:visible;}}
+.edge{{stroke:rgba(0,212,255,.18);stroke-width:1.5;fill:none;marker-end:url(#arrow);}}
+.edge.sg-edge{{stroke:rgba(139,92,246,.35);stroke-dasharray:4,3;}}
+.edge-lbl{{font-size:8px;fill:rgba(100,116,139,.7);font-family:'JetBrains Mono',monospace;}}
+
+/* ── NODES ── */
+.node{{position:absolute;background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:10px 12px 9px;width:158px;cursor:pointer;transition:border-color .18s,box-shadow .18s,transform .1s;user-select:none;}}
+.node:hover{{border-color:var(--accent);box-shadow:0 0 20px rgba(0,212,255,.14);transform:translateY(-1px);z-index:10!important;}}
+.node.sel{{border-color:var(--accent);box-shadow:0 0 28px rgba(0,212,255,.22),0 0 0 1px rgba(0,212,255,.3);z-index:20!important;}}
+.node.orphan{{opacity:.7;border-style:dashed;}}
+.n-icon{{width:28px;height:28px;margin-bottom:6px;border-radius:5px;overflow:hidden;flex-shrink:0;}}
+.n-icon img{{width:28px;height:28px;}}
+.n-name{{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;}}
+.n-type{{font-size:9px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px;}}
+.n-meta{{font-size:8px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:4px;}}
+.sdot{{width:5px;height:5px;border-radius:50%;flex-shrink:0;}}
+.sup{{background:#10b981;box-shadow:0 0 4px #10b981;}}
+.sdn{{background:#ef4444;}}
+.suk{{background:#64748b;}}
+.n-badge{{display:inline-block;font-size:8px;font-family:'JetBrains Mono',monospace;padding:1px 5px;border-radius:3px;border:1px solid;margin-top:3px;}}
+
+/* ── REGION GROUP ── */
+.rg-box{{position:absolute;border:1px dashed rgba(0,212,255,.12);border-radius:16px;background:rgba(0,212,255,.015);pointer-events:none;}}
+.rg-label{{position:absolute;top:-10px;left:14px;font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:rgba(0,212,255,.35);background:var(--bg);padding:0 6px;font-family:'JetBrains Mono',monospace;}}
+
+/* ── DETAIL PANEL ── */
+#dp{{position:fixed;top:46px;right:0;bottom:22px;width:272px;background:rgba(15,20,32,.97);border-left:1px solid var(--border);transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);z-index:95;overflow-y:auto;}}
+#dp::-webkit-scrollbar{{width:3px;}}
+#dp::-webkit-scrollbar-thumb{{background:var(--border);}}
+#dpi{{padding:16px;}}
+.dp-type{{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:5px;}}
+.dp-icon{{width:36px;height:36px;margin-bottom:8px;border-radius:8px;overflow:hidden;}}
+.dp-icon img{{width:36px;height:36px;}}
+.dp-name{{font-size:16px;font-weight:800;margin-bottom:12px;line-height:1.2;}}
+.dp-row{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,58,95,.5);gap:8px;}}
+.dk{{font-size:9px;color:var(--muted);flex-shrink:0;font-family:'JetBrains Mono',monospace;padding-top:1px;}}
+.dv{{font-size:9px;text-align:right;word-break:break-all;font-family:'JetBrains Mono',monospace;}}
+.dp-sec{{margin-top:12px;}}
+.dp-sec h4{{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}}
+.ci{{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:5px;margin-bottom:3px;background:rgba(255,255,255,.04);font-size:10px;cursor:pointer;transition:background .12s;}}
+.ci:hover{{background:rgba(255,255,255,.08);}}
+.ci img{{width:16px;height:16px;border-radius:3px;}}
+.dp-close{{position:absolute;top:10px;right:10px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:4px;border-radius:4px;transition:color .15s;}}
+.dp-close:hover{{color:var(--text);background:var(--surf2);}}
+
+/* ── CONTROLS ── */
+#ctrls{{position:fixed;bottom:30px;right:10px;z-index:100;display:flex;flex-direction:column;gap:4px;}}
+.cb{{width:30px;height:30px;border-radius:6px;background:rgba(17,24,39,.95);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all .15s;}}
+.cb:hover{{border-color:var(--accent);color:var(--accent);}}
+.cb.active{{border-color:var(--accent3);color:var(--accent3);}}
+
+/* ── STATUS BAR ── */
+#sbar{{position:fixed;bottom:0;left:232px;right:0;z-index:90;background:rgba(10,14,26,.93);border-top:1px solid var(--border);padding:3px 14px;display:flex;gap:18px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);height:22px;}}
+.sv{{color:var(--accent);font-weight:600;}}
+
+/* ── TOAST ── */
+#toast{{position:fixed;top:54px;right:16px;z-index:300;padding:6px 14px;border-radius:7px;font-size:11px;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;font-family:'Syne',sans-serif;}}
+#toast.show{{opacity:1;}}
+#toast.ok{{background:var(--accent3);color:#000;}}
+#toast.err{{background:var(--danger);color:white;}}
+
+/* ── MINI MAP ── */
+#minimap{{position:fixed;bottom:30px;left:242px;z-index:100;width:120px;height:80px;background:rgba(17,24,39,.9);border:1px solid var(--border);border-radius:6px;overflow:hidden;}}
+#mm-canvas{{position:absolute;inset:0;}}
+</style>
+</head>
+<body>
+
+{pwd_overlay_html}
+
+<div id="main-wrap">
+
+<div id="toast"></div>
+
+<div id="hdr">
+  <h1>☁️ AWS Architecture</h1>
+  <span class="badge bb" id="h-acct">Loading...</span>
+  <span class="badge bg" id="h-res">0 resources</span>
+  <span class="badge bp" id="h-reg">0 regions</span>
+  <span style="font-size:9px;color:var(--muted);font-family:monospace;white-space:nowrap" id="h-time"></span>
+  <button class="hbtn" onclick="saveToFile()" title="Download HTML with current layout saved">💾 Save Layout</button>
+  <button class="hbtn" onclick="autoArrange()" title="Re-run intelligent auto-layout">🔀 Re-Layout</button>
+  <button class="hbtn" onclick="exportJSON()">⬇ JSON</button>
+</div>
+
+<div id="sidebar">
+  <div class="sbs">
+    <div class="sbl">Resource Types</div>
+    <button class="fb active" id="btn-all" onclick="fType('all',this)">
+      <span class="fd" style="background:var(--accent)"></span>All Resources
+      <span class="fc" id="cnt-all">0</span>
+    </button>
+    <div id="type-list"></div>
+  </div>
+  <div class="sb-divider"></div>
+  <div class="sbs">
+    <div class="sbl">Regions</div>
+    <button class="fb active" id="btn-allreg" onclick="fReg('all',this)">
+      <span class="fd" style="background:var(--accent3)"></span>All Regions
+      <span class="fc" id="cnt-allreg">0</span>
+    </button>
+    <div id="reg-list"></div>
+  </div>
+  <div class="sb-divider"></div>
+  <div class="sbs" style="padding-bottom:10px;">
+    <div class="sbl">Display</div>
+    <button class="fb" onclick="toggleEdges(this)"><span class="fd" style="background:#00d4ff"></span>Connections<span id="edge-state" class="fc">ON</span></button>
+    <button class="fb" onclick="toggleOrphans(this)"><span class="fd" style="background:#f59e0b"></span>Orphan nodes<span id="orphan-state" class="fc">ON</span></button>
+  </div>
+</div>
+
+<input id="srch" placeholder="🔍 Search resources..." oninput="doSearch(this.value)">
+
+<div id="ca">
+  <div id="cv">
+    <svg id="edges">
+      <defs>
+        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="rgba(0,212,255,.4)"/>
+        </marker>
+        <marker id="arrow-sg" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="rgba(139,92,246,.5)"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+</div>
+
+<div id="dp">
+  <button class="dp-close" onclick="closeDetail()">✕</button>
+  <div id="dpi"></div>
+</div>
+
+<div id="ctrls">
+  <button class="cb" onclick="zoom(.15)" title="Zoom in">+</button>
+  <button class="cb" onclick="zoom(-.15)" title="Zoom out">−</button>
+  <button class="cb" onclick="resetView()" title="Fit to screen" id="fit-btn">⊙</button>
+  <button class="cb" onclick="toggleGrid()" title="Toggle grid" id="grid-btn">⊞</button>
+</div>
+
+<div id="sbar">
+  <span>Resources: <span class="sv" id="st-r">0</span></span>
+  <span>Connections: <span class="sv" id="st-c">0</span></span>
+  <span>Regions: <span class="sv" id="st-rg">0</span></span>
+  <span>Visible: <span class="sv" id="st-v">0</span></span>
+  <span style="margin-left:auto;color:rgba(100,116,139,.6)">Drag nodes · Scroll zoom · Click for details · 💾 Save Layout persists positions</span>
+</div>
+
+</div><!-- main-wrap -->
+
+<script>
+// ── DATA ─────────────────────────────────────────────────
+const RAW = ''' + json_data + ''';
+''' + icons_js + '''
+
+// ── TYPE CONFIG ──────────────────────────────────────────
+const TC = {
+  vpc:         {color:'#8C4FFF',label:'VPC'},
+  subnet:      {color:'#6366F1',label:'Subnet'},
+  igw:         {color:'#06B6D4',label:'Internet GW'},
+  nat:         {color:'#0EA5E9',label:'NAT GW'},
+  sg:          {color:'#8B5CF6',label:'Security Group'},
+  ec2:         {color:'#FF9900',label:'EC2 Instance'},
+  rds:         {color:'#2196F3',label:'RDS Database'},
+  s3:          {color:'#569A31',label:'S3 Bucket'},
+  lambda:      {color:'#FF9900',label:'Lambda'},
+  elb:         {color:'#8C4FFF',label:'Load Balancer'},
+  ecs:         {color:'#FF9900',label:'ECS Cluster'},
+  eks:         {color:'#326CE5',label:'EKS Cluster'},
+  dynamodb:    {color:'#2196F3',label:'DynamoDB'},
+  sns:         {color:'#FF4F8B',label:'SNS Topic'},
+  sqs:         {color:'#FF4F8B',label:'SQS Queue'},
+  elasticache: {color:'#C7131F',label:'ElastiCache'},
+  cloudfront:  {color:'#8C4FFF',label:'CloudFront'},
+  vpn:         {color:'#C7131F',label:'VPN Connection'},
+  cgw:         {color:'#546E7A',label:'Customer GW'},
+  vgw:         {color:'#0D86FF',label:'Virtual GW'},
+};
+function tc(t){return TC[t]||{color:'#546E7A',label:t.toUpperCase()};}
+function icon(t){return AWS_ICONS[t]||AWS_ICONS['cgw'];}
+
+// ── STATE ────────────────────────────────────────────────
+let scale=.9,panX=30,panY=30;
+let isPan=false,panStart={x:0,y:0},panOrig={x:0,y:0};
+let dragNode=null,dragStart={x:0,y:0,nx:0,ny:0};
+let selNode=null,typeFilter='all',regFilter='all',searchQ='';
+let showEdges=true,showOrphans=true,showGrid=true;
+let positions={};  // SAVED POSITIONS INJECTED HERE ON SAVE
+let filtersReady=false;
+
+// ── INTELLIGENT LAYOUT ───────────────────────────────────
+function smartLayout(resources){
+  const pos={};
+  const conns=RAW.connections;
+  const connSet=new Set(conns.map(c=>c.from).concat(conns.map(c=>c.to)));
+
+  // Separate orphans from connected nodes
+  const connected=resources.filter(r=>connSet.has(r.id));
+  const orphans=resources.filter(r=>!connSet.has(r.id));
+
+  // Build adjacency for topological ordering
+  const byId={};
+  resources.forEach(r=>byId[r.id]=r);
+
+  // Layer assignment: BFS from root nodes (vpc, igw, cgw, vgw)
+  const ROOT_TYPES=['cgw','vpn','vgw','vpc','igw','cloudfront'];
+  const LAYER_ORDER=['cgw','vpn','vgw','vpc','igw','nat','subnet','elb','ec2','rds','lambda','ecs','eks','elasticache','dynamodb','sg','sns','sqs','s3'];
+
+  // Group connected nodes by region then by layer
+  const byRegion={};
+  connected.forEach(r=>{
+    if(!byRegion[r.region])byRegion[r.region]=[];
+    byRegion[r.region].push(r);
+  });
+
+  const W=195, H=130, PAD=60, GROUP_GAP=100;
+  let globalX=PAD;
+
+  Object.entries(byRegion).forEach(([region,nodes])=>{
+    // Sort by layer order
+    const sorted=[...nodes].sort((a,b)=>{
+      const ai=LAYER_ORDER.indexOf(a.type);
+      const bi=LAYER_ORDER.indexOf(b.type);
+      return (ai===-1?99:ai)-(bi===-1?99:bi);
+    });
+
+    // Group by type within region
+    const byType={};
+    sorted.forEach(n=>{
+      if(!byType[n.type])byType[n.type]=[];
+      byType[n.type].push(n);
+    });
+
+    let colX=globalX;
+    let maxY=PAD;
+
+    Object.entries(byType).forEach(([type,tnodes])=>{
+      const cols=Math.min(tnodes.length,3);
+      tnodes.forEach((n,i)=>{
+        const col=i%cols;
+        const row=Math.floor(i/cols);
+        pos[n.id]={x:colX+col*W, y:PAD+row*H};
+      });
+      const rows=Math.ceil(tnodes.length/cols);
+      maxY=Math.max(maxY,PAD+rows*H);
+      colX+=cols*W+40;
+    });
+
+    globalX=colX+GROUP_GAP;
+  });
+
+  // Orphans go neatly at the bottom in a grid
+  const orphanStartX=PAD;
+  let orphanStartY=maxYOfAll(pos)+80;
+  if(orphanStartY<PAD)orphanStartY=PAD;
+  orphans.forEach((r,i)=>{
+    pos[r.id]={x:orphanStartX+(i%6)*W, y:orphanStartY+Math.floor(i/6)*H};
+  });
+
+  return pos;
+}
+
+function maxYOfAll(pos){
+  let m=0;
+  Object.values(pos).forEach(p=>{if(p.y>m)m=p.y;});
+  return m;
+}
+
+function autoArrange(){
+  positions=smartLayout(RAW.resources);
+  render();
+  fitView();
+  toast('🔀 Layout re-arranged!','ok');
+}
+
+// ── FIT VIEW ─────────────────────────────────────────────
+function fitView(){
+  const vis=getVisible();
+  if(!vis.length)return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  vis.forEach(r=>{
+    const p=positions[r.id];
+    if(!p)return;
+    minX=Math.min(minX,p.x);minY=Math.min(minY,p.y);
+    maxX=Math.max(maxX,p.x+158);maxY=Math.max(maxY,p.y+90);
+  });
+  const ca=document.getElementById('ca');
+  const vw=ca.clientWidth, vh=ca.clientHeight;
+  const dw=maxX-minX+80, dh=maxY-minY+80;
+  scale=Math.min(vw/dw, vh/dh, 1.2);
+  panX=(vw-dw*scale)/2-minX*scale+40;
+  panY=(vh-dh*scale)/2-minY*scale+40;
+  applyT();
+}
+
+// ── VISIBLE ───────────────────────────────────────────────
+function getVisible(){
+  return RAW.resources.filter(r=>{
+    if(typeFilter!=='all'&&r.type!==typeFilter)return false;
+    if(regFilter!=='all'&&r.region!==regFilter)return false;
+    if(!showOrphans){
+      const connSet=new Set(RAW.connections.map(c=>c.from).concat(RAW.connections.map(c=>c.to)));
+      if(!connSet.has(r.id))return false;
+    }
+    if(searchQ){const q=searchQ.toLowerCase();return r.name.toLowerCase().includes(q)||r.id.toLowerCase().includes(q)||r.type.toLowerCase().includes(q)||r.region.toLowerCase().includes(q);}
+    return true;
+  });
+}
+
+// ── RENDER ───────────────────────────────────────────────
+function render(){
+  const cv=document.getElementById('cv');
+  const svg=document.getElementById('edges');
+  Array.from(cv.children).forEach(c=>{if(c.id!=='edges')c.remove();});
+  // Keep defs, remove paths/texts only
+  Array.from(svg.children).forEach(c=>{if(c.tagName!=='defs')c.remove();});
+
+  const vis=getVisible();
+  const visIds=new Set(vis.map(r=>r.id));
+  const connSet=new Set(RAW.connections.map(c=>c.from).concat(RAW.connections.map(c=>c.to)));
+
+  // Ensure positions
+  vis.forEach(r=>{if(!positions[r.id])positions[r.id]={x:80+Math.random()*800,y:80+Math.random()*500};});
+
+  // Draw edges
+  if(showEdges){
+    RAW.connections.filter(c=>visIds.has(c.from)&&visIds.has(c.to)).forEach(conn=>{
+      const f=positions[conn.from],t=positions[conn.to];
+      if(!f||!t)return;
+      const isSG=conn.label==='sg';
+      const fx=f.x+79,fy=f.y+45,tx=t.x+79,ty=t.y+45;
+      const mx=(fx+tx)/2,my=(fy+ty)/2-30;
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('class','edge'+(isSG?' sg-edge':''));
+      path.setAttribute('d',`M${fx} ${fy} Q${mx} ${my} ${tx} ${ty}`);
+      path.setAttribute('marker-end',isSG?'url(#arrow-sg)':'url(#arrow)');
+      svg.appendChild(path);
+      if(conn.label&&conn.label!=='contains'){
+        const txt=document.createElementNS('http://www.w3.org/2000/svg','text');
+        txt.setAttribute('x',mx);txt.setAttribute('y',my-3);
+        txt.setAttribute('text-anchor','middle');txt.setAttribute('class','edge-lbl');
+        txt.textContent=conn.label;svg.appendChild(txt);
+      }
+    });
+  }
+
+  // Draw region groups
+  const byRegion={};
+  vis.forEach(r=>{if(!byRegion[r.region])byRegion[r.region]=[];byRegion[r.region].push(r);});
+  Object.entries(byRegion).forEach(([reg,nodes])=>{
+    if(nodes.length<2)return;
+    let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+    nodes.forEach(r=>{const p=positions[r.id];if(!p)return;mnx=Math.min(mnx,p.x);mny=Math.min(mny,p.y);mxx=Math.max(mxx,p.x+158);mxy=Math.max(mxy,p.y+90);});
+    const box=document.createElement('div');
+    box.className='rg-box';
+    box.style.left=(mnx-18)+'px';box.style.top=(mny-18)+'px';
+    box.style.width=(mxx-mnx+36)+'px';box.style.height=(mxy-mny+36)+'px';
+    const lbl=document.createElement('div');lbl.className='rg-label';lbl.textContent=reg;
+    box.appendChild(lbl);cv.appendChild(box);
+  });
+
+  // Draw nodes
+  vis.forEach(r=>{
+    const p=positions[r.id];
+    const conf=tc(r.type);
+    const isOrphan=!connSet.has(r.id);
+    const el=document.createElement('div');
+    el.className='node'+(selNode===r.id?' sel':'')+(isOrphan?' orphan':'');
+    el.style.left=p.x+'px';el.style.top=p.y+'px';
+    el.style.zIndex=selNode===r.id?20:1;
+    el.style.borderTop=`2px solid ${conf.color}`;
+
+    const st=r.meta?.state||r.meta?.status||'';
+    const up=['running','available','active','up','Up','enabled'].includes(st);
+    const dn=['stopped','down','Down','failed','error','deleted'].includes(st);
+    const sc=up?'sup':dn?'sdn':'suk';
+    const stLabel=st?st:'';
+
+    el.innerHTML=`<div style="display:flex;align-items:flex-start;gap:8px;">
+  <div class="n-icon"><img src="${icon(r.type)}" alt="${r.type}"/></div>
+  <div style="flex:1;min-width:0;">
+    <div class="n-name" title="${r.name}">${r.name}</div>
+    <div class="n-type">${conf.label}</div>
+  </div>
+</div>
+<div class="n-meta"><span class="sdot ${sc}"></span><span>${r.region}</span>${stLabel?`<span class="n-badge" style="border-color:${up?'#10b981':dn?'#ef4444':'#64748b'};color:${up?'#10b981':dn?'#ef4444':'#94a3b8'}">${stLabel}</span>`:''}
+</div>`;
+
+    el.addEventListener('click',e=>{e.stopPropagation();selNode=r.id;showDetail(r);render();});
+    el.addEventListener('mousedown',e=>{
+      if(e.button!==0)return;e.stopPropagation();
+      dragNode=r.id;
+      dragStart={x:e.clientX,y:e.clientY,nx:positions[r.id].x,ny:positions[r.id].y};
+    });
+    cv.appendChild(el);
+  });
+
+  document.getElementById('st-v').textContent=vis.length;
+  document.getElementById('st-r').textContent=RAW.resources.length;
+  document.getElementById('st-c').textContent=RAW.connections.length;
+  document.getElementById('st-rg').textContent=RAW.active_regions?.length||0;
+}
+
+// ── DETAIL PANEL ─────────────────────────────────────────
+function showDetail(r){
+  const conf=tc(r.type);
+  const conns=RAW.connections.filter(c=>c.from===r.id||c.to===r.id);
+  let meta='';
+  if(r.meta){Object.entries(r.meta).forEach(([k,v])=>{
+    if(v===null||v===undefined||v==='')return;
+    if(Array.isArray(v)){v.forEach((it,i)=>{if(typeof it==='object')Object.entries(it).forEach(([ik,iv])=>{if(iv)meta+=`<div class="dp-row"><span class="dk">t${i+1}.${ik}</span><span class="dv">${iv}</span></div>`;});});return;}
+    meta+=`<div class="dp-row"><span class="dk">${k}</span><span class="dv">${v}</span></div>`;
+  });}
+  let connHtml='';
+  conns.slice(0,15).forEach(c=>{
+    const oid=c.from===r.id?c.to:c.from;
+    const oth=RAW.resources.find(x=>x.id===oid);
+    const dir=c.from===r.id?'→':'←';
+    connHtml+=`<div class="ci" onclick="jumpTo('${oid}')">${dir}<img src="${icon(oth?.type||'')}" alt=""/><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${oth?.name||oid}</span><span style="color:var(--muted);font-size:8px;flex-shrink:0">${c.label}</span></div>`;
+  });
+  document.getElementById('dpi').innerHTML=`
+<div class="dp-type">${conf.label}</div>
+<div class="dp-icon"><img src="${icon(r.type)}" alt="${r.type}"/></div>
+<div class="dp-name">${r.name}</div>
+<div class="dp-row"><span class="dk">id</span><span class="dv" style="color:var(--accent);font-size:8px">${r.id}</span></div>
+<div class="dp-row"><span class="dk">region</span><span class="dv">${r.region}</span></div>
+${meta}
+${conns.length?`<div class="dp-sec"><h4>Connections (${conns.length})</h4>${connHtml}</div>`:'<div style="margin-top:12px;font-size:10px;color:var(--muted);font-family:monospace">No connections found</div>'}`;
+  document.getElementById('dp').style.transform='translateX(0)';
+}
+function closeDetail(){document.getElementById('dp').style.transform='translateX(100%)';selNode=null;render();}
+function jumpTo(id){const r=RAW.resources.find(x=>x.id===id);if(!r)return;selNode=id;showDetail(r);const p=positions[id];if(p){const ca=document.getElementById('ca');panX=-(p.x*scale)+ca.clientWidth/2-79;panY=-(p.y*scale)+ca.clientHeight/2-45;applyT();}render();}
+
+// ── FILTERS — BUILT ONCE ─────────────────────────────────
+function buildFilters(){
+  if(filtersReady)return; filtersReady=true;
+  const typeCounts={};
+  RAW.resources.forEach(r=>{typeCounts[r.type]=(typeCounts[r.type]||0)+1;});
+  document.getElementById('cnt-all').textContent=RAW.resources.length;
+  const tl=document.getElementById('type-list');tl.innerHTML='';
+  Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]).forEach(([type,count])=>{
+    const conf=tc(type);
+    const btn=document.createElement('button');btn.className='fb';
+    btn.innerHTML=`<span class="fd" style="background:${conf.color}"></span>${conf.label}<span class="fc">${count}</span>`;
+    btn.onclick=()=>fType(type,btn);tl.appendChild(btn);
+  });
+  const regions=[...new Set(RAW.resources.map(r=>r.region))].sort();
+  document.getElementById('cnt-allreg').textContent=regions.length;
+  const rl=document.getElementById('reg-list');rl.innerHTML='';
+  regions.forEach(region=>{
+    const count=RAW.resources.filter(r=>r.region===region).length;
+    const btn=document.createElement('button');btn.className='fb';
+    btn.innerHTML=`<span class="fd" style="background:var(--accent3)"></span>${region}<span class="fc">${count}</span>`;
+    btn.onclick=()=>fReg(region,btn);rl.appendChild(btn);
+  });
+}
+function fType(t,btn){typeFilter=t;document.querySelectorAll('#type-list .fb,#btn-all').forEach(b=>b.classList.remove('active'));(btn||document.getElementById('btn-all')).classList.add('active');render();}
+function fReg(r,btn){regFilter=r;document.querySelectorAll('#reg-list .fb,#btn-allreg').forEach(b=>b.classList.remove('active'));(btn||document.getElementById('btn-allreg')).classList.add('active');render();}
+function doSearch(v){searchQ=v;render();}
+function toggleEdges(btn){showEdges=!showEdges;document.getElementById('edge-state').textContent=showEdges?'ON':'OFF';if(btn)btn.classList.toggle('active',!showEdges);render();}
+function toggleOrphans(btn){showOrphans=!showOrphans;document.getElementById('orphan-state').textContent=showOrphans?'ON':'OFF';render();}
+function toggleGrid(){showGrid=!showGrid;document.body.style.backgroundImage=showGrid?'linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px)':'none';document.getElementById('grid-btn').classList.toggle('active',!showGrid);}
+
+// ── PAN & ZOOM ────────────────────────────────────────────
+function applyT(){document.getElementById('cv').style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;}
+function zoom(d){scale=Math.max(.1,Math.min(3,scale+d));applyT();}
+function resetView(){fitView();}
+const ca=document.getElementById('ca');
+ca.addEventListener('mousedown',e=>{if(dragNode)return;isPan=true;panStart={x:e.clientX,y:e.clientY};panOrig={x:panX,y:panY};});
+window.addEventListener('mousemove',e=>{
+  if(dragNode){const dx=(e.clientX-dragStart.x)/scale,dy=(e.clientY-dragStart.y)/scale;positions[dragNode]={x:dragStart.nx+dx,y:dragStart.ny+dy};render();return;}
+  if(!isPan)return;panX=panOrig.x+(e.clientX-panStart.x);panY=panOrig.y+(e.clientY-panStart.y);applyT();
+});
+window.addEventListener('mouseup',()=>{isPan=false;dragNode=null;});
+ca.addEventListener('wheel',e=>{e.preventDefault();const d=e.deltaY>0?-.1:.1;scale=Math.max(.1,Math.min(3,scale+d));applyT();},{passive:false});
+ca.addEventListener('click',e=>{if(e.target===ca||e.target===document.getElementById('cv'))closeDetail();});
+
+// ── SAVE LAYOUT (downloads modified HTML with positions baked in) ──
+function saveToFile(){
+  const posJson=JSON.stringify(positions);
+  let html=document.documentElement.outerHTML;
+  // Replace the positions placeholder line
+  html=html.replace(/let positions=\{[^;]*\};/,'let positions='+posJson+';');
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  const fname='aws-arch-'+RAW.account_id+'-saved.html';
+  a.download=fname;a.click();
+  toast('💾 Saved as '+fname,'ok');
+}
+
+function exportJSON(){
+  const blob=new Blob([JSON.stringify(RAW,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='aws-report-'+RAW.account_id+'.json';a.click();
+}
+
+function toast(msg,type='ok'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.className='show '+type;
+  setTimeout(()=>el.className='',2500);
+}
+
+// ── INIT ──────────────────────────────────────────────────
+function initApp(){
+  document.getElementById('h-acct').textContent='Account: '+RAW.account_id;
+  document.getElementById('h-res').textContent=RAW.total_resources+' resources';
+  document.getElementById('h-reg').textContent=(RAW.active_regions?.length||0)+' regions';
+  document.getElementById('h-time').textContent='Scanned: '+new Date(RAW.scanned_at).toLocaleString();
+  // Use saved positions if available, else smart layout
+  if(Object.keys(positions).length===0){
+    positions=smartLayout(RAW.resources);
+  }
+  buildFilters();
+  render();
+  setTimeout(fitView,100);
+  document.getElementById('loading')&&(document.getElementById('loading').style.display='none');
+}
+
+''' + pwd_script + '''
+</script>
+</body>
+</html>'''
 
 
 # ─────────────────────────────────────────────
@@ -1314,36 +1269,34 @@ def main():
     )
     parser.add_argument("--access-key", "-a", required=True, help="AWS Access Key ID")
     parser.add_argument("--secret-key", "-s", required=True, help="AWS Secret Access Key")
-    parser.add_argument("--session-token", "-t", default=None, help="AWS Session Token (optional, for temp credentials)")
-    parser.add_argument("--output", "-o", default="aws-architecture", help="Output file prefix (default: aws-architecture)")
+    parser.add_argument("--session-token", "-t", default=None, help="AWS Session Token (optional)")
+    parser.add_argument("--output", "-o", default="aws-architecture", help="Output file prefix")
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  AWS Architecture Scanner")
+    print("  AWS Architecture Scanner  v3")
     print("=" * 60)
 
     scanner = AWSScanner(args.access_key, args.secret_key, args.session_token)
     data = scanner.scan()
 
-    # Save JSON report
     json_path = f"{args.output}-report.json"
     with open(json_path, 'w') as f:
         json.dump(data, f, indent=2, default=str)
     print(f"\n✅ JSON report saved: {json_path}")
 
-    # Save HTML diagram
     html_path = f"{args.output}-diagram.html"
     generate_html(data, html_path)
 
     print("\n" + "=" * 60)
     print(f"  ✅ Scan Complete!")
-    print(f"  📊 Total Resources : {data['total_resources']}")
-    print(f"  🔗 Total Connections: {data['total_connections']}")
-    print(f"  🌍 Active Regions  : {len(data['active_regions'])}")
-    print(f"  📁 JSON Report     : {json_path}")
-    print(f"  🌐 HTML Diagram    : {html_path}")
+    print(f"  📊 Resources  : {data['total_resources']}")
+    print(f"  🔗 Connections: {data['total_connections']}")
+    print(f"  🌍 Regions    : {len(data['active_regions'])}")
+    print(f"  📁 JSON       : {json_path}")
+    print(f"  🌐 HTML       : {html_path}")
     print("=" * 60)
-    print(f"\n  Open {html_path} in your browser to view the diagram!\n")
+    print(f"\n  Open {html_path} in your browser!\n")
 
 
 if __name__ == "__main__":
