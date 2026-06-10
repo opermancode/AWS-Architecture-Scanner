@@ -919,6 +919,7 @@ def build_html(data, json_data, pwd_hash, use_password):
         'route_table': '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#E7157B"/><rect x="8" y="10" width="24" height="20" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M8 16H32M8 22H32M16 10V30" stroke="white" stroke-width="1.5"/><circle cx="27" cy="13" r="2" fill="#10b981"/><circle cx="27" cy="19" r="2" fill="#f59e0b"/><circle cx="27" cy="25" r="2" fill="#10b981"/></svg>',
         'eip':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF9900"/><circle cx="20" cy="18" r="8" stroke="white" stroke-width="2" fill="none"/><path d="M14 30C14 30 16 26 20 26C24 26 26 30 26 30" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M17 18H23M20 15V21" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
         'dhcp':        '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#546E7A"/><path d="M10 14H30V28H10V14Z" stroke="white" stroke-width="2" fill="none" rx="2"/><path d="M14 19H20M14 23H26" stroke="white" stroke-width="1.5" stroke-linecap="round"/><circle cx="25" cy="19" r="2" fill="white"/></svg>',
+        'cgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#FF6B35"/><rect x="8" y="12" width="24" height="18" rx="2" stroke="white" stroke-width="2" fill="none"/><path d="M8 18H32" stroke="white" stroke-width="1.5"/><path d="M14 12V9M26 12V9" stroke="white" stroke-width="2" stroke-linecap="round"/><rect x="12" y="21" width="5" height="4" rx="1" fill="white" opacity="0.8"/><rect x="20" y="21" width="5" height="4" rx="1" fill="white" opacity="0.5"/><circle cx="32" cy="8" r="4" fill="#10b981"/><path d="M30 8L31.5 9.5L34 7" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         'vgw':         '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="#0D86FF"/><path d="M20 10V30M14 14L20 10L26 14M14 26L20 30L26 26" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 20H30" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
     }
 
@@ -1214,7 +1215,7 @@ const TC = {
   endpoint:    {color:'#1A6622',label:'VPC Endpoint'},
   eip:         {color:'#FF9900',label:'Elastic IP'},
   dhcp:        {color:'#546E7A',label:'DHCP Options'},
-  cgw:         {color:'#546E7A',label:'Customer GW'},
+  cgw:         {color:'#FF6B35',label:'Customer GW'},
   vgw:         {color:'#0D86FF',label:'Virtual GW'},
 };
 function tc(t){return TC[t]||{color:'#546E7A',label:t.toUpperCase()};}
